@@ -154,7 +154,8 @@ impl RunCmd {
 
 		 new_base.validator = self.base.validator || self.collator;
 
-		 NormalizedRunCmd { 
+		println!("Test");
+		 NormalizedRunCmd {
 			 base: new_base,
 			 parachain_id: self.parachain_id,
 		}
