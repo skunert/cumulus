@@ -88,7 +88,7 @@
 		<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">set_custom_validation_head_data</span>(
 			<span class="kw">_</span>: <span class="ident">OriginFor</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>,
 			<span class="ident">custom_header</span>: <span class="ident">sp_std::vec::Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>,
-		) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">DispatchResult</span> {
+		) -&gt; <span class="ident">DispatchResult</span> {
 			<span class="ident">cumulus_pallet_parachain_system::Pallet</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="ident">::set_custom_validation_head_data</span>(
 				<span class="ident">custom_header</span>,
 			);
