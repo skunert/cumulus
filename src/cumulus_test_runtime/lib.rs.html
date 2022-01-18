@@ -740,7 +740,7 @@
 <span class="kw">impl</span> <span class="ident">cumulus_pallet_parachain_system::Config</span> <span class="kw">for</span> <span class="ident">Runtime</span> {
 	<span class="kw">type</span> <span class="ident">SelfParaId</span> <span class="op">=</span> <span class="ident">ParachainId</span>;
 	<span class="kw">type</span> <span class="ident">Event</span> <span class="op">=</span> <span class="ident">Event</span>;
-	<span class="kw">type</span> <span class="ident">OnValidationData</span> <span class="op">=</span> ();
+	<span class="kw">type</span> <span class="ident">OnSystemEvent</span> <span class="op">=</span> ();
 	<span class="kw">type</span> <span class="ident">OutboundXcmpMessageSource</span> <span class="op">=</span> ();
 	<span class="kw">type</span> <span class="ident">DmpMessageHandler</span> <span class="op">=</span> ();
 	<span class="kw">type</span> <span class="ident">ReservedDmpWeight</span> <span class="op">=</span> ();

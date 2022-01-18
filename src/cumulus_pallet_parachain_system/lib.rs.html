@@ -1021,6 +1021,22 @@
 <span id="1021">1021</span>
 <span id="1022">1022</span>
 <span id="1023">1023</span>
+<span id="1024">1024</span>
+<span id="1025">1025</span>
+<span id="1026">1026</span>
+<span id="1027">1027</span>
+<span id="1028">1028</span>
+<span id="1029">1029</span>
+<span id="1030">1030</span>
+<span id="1031">1031</span>
+<span id="1032">1032</span>
+<span id="1033">1033</span>
+<span id="1034">1034</span>
+<span id="1035">1035</span>
+<span id="1036">1036</span>
+<span id="1037">1037</span>
+<span id="1038">1038</span>
+<span id="1039">1039</span>
 </pre><pre class="rust"><code><span class="comment">// Copyright 2020 Parity Technologies (UK) Ltd.</span>
 <span class="comment">// This file is part of Cumulus.</span>
 
@@ -1053,7 +1069,7 @@
 <span class="kw">use</span> <span class="ident">codec::Encode</span>;
 <span class="kw">use</span> <span class="ident">cumulus_primitives_core</span>::{
 	<span class="ident">relay_chain</span>, <span class="ident">AbridgedHostConfiguration</span>, <span class="ident">ChannelStatus</span>, <span class="ident">CollationInfo</span>, <span class="ident">DmpMessageHandler</span>,
-	<span class="ident">GetChannelInfo</span>, <span class="ident">InboundDownwardMessage</span>, <span class="ident">InboundHrmpMessage</span>, <span class="ident">MessageSendError</span>, <span class="ident">OnValidationData</span>,
+	<span class="ident">GetChannelInfo</span>, <span class="ident">InboundDownwardMessage</span>, <span class="ident">InboundHrmpMessage</span>, <span class="ident">MessageSendError</span>,
 	<span class="ident">OutboundHrmpMessage</span>, <span class="ident">ParaId</span>, <span class="ident">PersistedValidationData</span>, <span class="ident">UpwardMessage</span>, <span class="ident">UpwardMessageSender</span>,
 	<span class="ident">XcmpMessageHandler</span>, <span class="ident">XcmpMessageSource</span>,
 };
@@ -1128,7 +1144,7 @@
 		<span class="kw">type</span> <span class="ident">Event</span>: <span class="ident">From</span><span class="op">&lt;</span><span class="ident">Event</span><span class="op">&lt;</span><span class="self">Self</span><span class="op">&gt;</span><span class="op">&gt;</span> <span class="op">+</span> <span class="ident">IsType</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">frame_system::Config</span><span class="op">&gt;</span><span class="ident">::Event</span><span class="op">&gt;</span>;
 
 		<span class="doccomment">/// Something which can be notified when the validation data is set.</span>
-		<span class="kw">type</span> <span class="ident">OnValidationData</span>: <span class="ident">OnValidationData</span>;
+		<span class="kw">type</span> <span class="ident">OnSystemEvent</span>: <span class="ident">OnSystemEvent</span>;
 
 		<span class="doccomment">/// Returns the parachain ID we are running with.</span>
 		<span class="kw">type</span> <span class="ident">SelfParaId</span>: <span class="ident">Get</span><span class="op">&lt;</span><span class="ident">ParaId</span><span class="op">&gt;</span>;
@@ -1352,6 +1368,7 @@
 					<span class="kw">let</span> <span class="ident">validation_code</span> <span class="op">=</span> <span class="op">&lt;</span><span class="ident">PendingValidationCode</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="op">&gt;</span><span class="ident">::take</span>();
 
 					<span class="ident"><span class="self">Self</span>::put_parachain_code</span>(<span class="kw-2">&amp;</span><span class="ident">validation_code</span>);
+					<span class="op">&lt;</span><span class="ident">T::OnSystemEvent</span> <span class="kw">as</span> <span class="ident">OnSystemEvent</span><span class="op">&gt;</span><span class="ident">::on_validation_code_applied</span>();
 					<span class="ident"><span class="self">Self</span>::deposit_event</span>(<span class="ident">Event::ValidationFunctionApplied</span>(<span class="ident">vfp</span>.<span class="ident">relay_parent_number</span>));
 				},
 				<span class="prelude-val">Some</span>(<span class="ident">relay_chain::v1::UpgradeGoAhead::Abort</span>) =&gt; {
@@ -1377,7 +1394,7 @@
 			<span class="op">&lt;</span><span class="ident">RelevantMessagingState</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="op">&gt;</span><span class="ident">::put</span>(<span class="ident">relevant_messaging_state</span>.<span class="ident">clone</span>());
 			<span class="op">&lt;</span><span class="ident">HostConfiguration</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="op">&gt;</span><span class="ident">::put</span>(<span class="ident">host_config</span>);
 
-			<span class="op">&lt;</span><span class="ident">T::OnValidationData</span> <span class="kw">as</span> <span class="ident">OnValidationData</span><span class="op">&gt;</span><span class="ident">::on_validation_data</span>(<span class="kw-2">&amp;</span><span class="ident">vfp</span>);
+			<span class="op">&lt;</span><span class="ident">T::OnSystemEvent</span> <span class="kw">as</span> <span class="ident">OnSystemEvent</span><span class="op">&gt;</span><span class="ident">::on_validation_data</span>(<span class="kw-2">&amp;</span><span class="ident">vfp</span>);
 
 			<span class="comment">// TODO: This is more than zero, but will need benchmarking to figure out what.</span>
 			<span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">total_weight</span> <span class="op">=</span> <span class="number">0</span>;
@@ -1420,7 +1437,7 @@
 			<span class="ident">code</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>,
 		) -&gt; <span class="ident">DispatchResultWithPostInfo</span> {
 			<span class="ident"><span class="self">Self</span>::validate_authorized_upgrade</span>(<span class="kw-2">&amp;</span><span class="ident">code</span>[..])<span class="question-mark">?</span>;
-			<span class="ident"><span class="self">Self</span>::set_code_impl</span>(<span class="ident">code</span>)<span class="question-mark">?</span>;
+			<span class="ident"><span class="self">Self</span>::schedule_code_upgrade</span>(<span class="ident">code</span>)<span class="question-mark">?</span>;
 			<span class="ident">AuthorizedUpgrade</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="ident">::kill</span>();
 			<span class="prelude-val">Ok</span>(<span class="ident">Pays::No</span>.<span class="ident">into</span>())
 		}
@@ -1906,7 +1923,7 @@
 	}
 
 	<span class="doccomment">/// The implementation of the runtime upgrade functionality for parachains.</span>
-	<span class="kw">fn</span> <span class="ident">set_code_impl</span>(<span class="ident">validation_function</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>) -&gt; <span class="ident">DispatchResult</span> {
+	<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">schedule_code_upgrade</span>(<span class="ident">validation_function</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>) -&gt; <span class="ident">DispatchResult</span> {
 		<span class="comment">// Ensure that `ValidationData` exists. We do not care about the validation data per se,</span>
 		<span class="comment">// but we do care about the [`UpgradeRestrictionSignal`] which arrives with the same inherent.</span>
 		<span class="macro">ensure!</span>(<span class="op">&lt;</span><span class="ident">ValidationData</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="op">&gt;</span><span class="ident">::exists</span>(), <span class="ident">Error</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="ident">::ValidationDataNotAvailable</span>,);
@@ -1972,7 +1989,7 @@
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="ident">Config</span><span class="op">&gt;</span> <span class="ident">frame_system::SetCode</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">ParachainSetCode</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> {
 	<span class="kw">fn</span> <span class="ident">set_code</span>(<span class="ident">code</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>) -&gt; <span class="ident">DispatchResult</span> {
-		<span class="ident">Pallet</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="ident">::set_code_impl</span>(<span class="ident">code</span>)
+		<span class="ident">Pallet</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span><span class="ident">::schedule_code_upgrade</span>(<span class="ident">code</span>)
 	}
 }
 
@@ -2028,6 +2045,21 @@
 		<span class="ident">block</span>: <span class="kw-2">&amp;</span><span class="ident">Block</span>,
 		<span class="ident">validation_data</span>: <span class="kw-2">&amp;</span><span class="ident">RelayChainStateProof</span>,
 	) -&gt; <span class="ident">frame_support::inherent::CheckInherentsResult</span>;
+}
+
+<span class="doccomment">/// Something that should be informed about system related events.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This includes events like [`on_validation_data`](Self::on_validation_data) that is being</span>
+<span class="doccomment">/// called when the parachain inherent is executed that contains the validation data.</span>
+<span class="doccomment">/// Or like [`on_validation_code_applied`](Self::on_validation_code_applied) that is called</span>
+<span class="doccomment">/// when the new validation is written to the state. This means that</span>
+<span class="doccomment">/// from the next block the runtime is being using this new code.</span>
+<span class="attribute">#[<span class="ident">impl_trait_for_tuples::impl_for_tuples</span>(<span class="number">30</span>)]</span>
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">OnSystemEvent</span> {
+	<span class="doccomment">/// Called in each blocks once when the validation data is set by the inherent.</span>
+	<span class="kw">fn</span> <span class="ident">on_validation_data</span>(<span class="ident">data</span>: <span class="kw-2">&amp;</span><span class="ident">PersistedValidationData</span>);
+	<span class="doccomment">/// Called when the validation code is being applied, aka from the next block on this is the new runtime.</span>
+	<span class="kw">fn</span> <span class="ident">on_validation_code_applied</span>();
 }
 
 <span class="doccomment">/// Implements [`BlockNumberProvider`] that returns relay chain block number fetched from</span>
