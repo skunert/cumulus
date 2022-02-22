@@ -281,6 +281,7 @@ where
 
 async fn build_relay_chain_interface(
 	polkadot_config: Configuration,
+	parachain_config: &Configuration,
 	telemetry_worker_handle: Option<TelemetryWorkerHandle>,
 	task_manager: &mut TaskManager,
 	collator_options: CollatorOptions,
@@ -381,6 +382,7 @@ where
 
 	let (relay_chain_interface, collator_key) = build_relay_chain_interface(
 		polkadot_config,
+		&parachain_config,
 		telemetry_worker_handle,
 		&mut task_manager,
 		collator_options.clone(),
@@ -567,6 +569,7 @@ where
 	let mut task_manager = params.task_manager;
 	let (relay_chain_interface, collator_key) = build_relay_chain_interface(
 		polkadot_config,
+		&parachain_config,
 		telemetry_worker_handle,
 		&mut task_manager,
 		collator_options.clone(),
