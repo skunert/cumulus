@@ -178,10 +178,11 @@ async fn build_relay_chain_interface(
 		None => {
 			let relay_chain_local = build_inprocess_relay_chain(
 				polkadot_config,
+				parachain_config,
 				telemetry_worker_handle,
 				task_manager,
 			)?;
-			Ok((relay_chain_local.0, Some(relay_chain_local.1)))
+			Ok((relay_chain_local.0, relay_chain_local.1))
 		},
 	}
 }
