@@ -28,7 +28,6 @@ use sc_network::NetworkService;
 use sc_service::{Configuration, PartialComponents, Role, TFullBackend, TFullClient, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker, TelemetryWorkerHandle};
 use sp_api::ConstructRuntimeApi;
-use sp_consensus::SlotData;
 use sp_keystore::SyncCryptoStorePtr;
 use sp_runtime::traits::BlakeTwo256;
 use substrate_prometheus_endpoint::Registry;
@@ -278,7 +277,7 @@ where
 	.await
 	.map_err(|e| match e {
 		RelayChainError::ServiceError(polkadot_service::Error::Sub(x)) => x,
-		s => format!("{}", s).into(),
+		s => s.to_string().into(),
 	})?;
 
 	let block_announce_validator = BlockAnnounceValidator::new(relay_chain_interface.clone(), id);
@@ -361,7 +360,7 @@ where
 			spawner,
 			parachain_consensus,
 			import_queue,
-			collator_key: collator_key.expect("Unable to start collator without collator key."),
+			collator_key: collator_key.expect("Command line arguments do not allow this. qed"),
 			relay_chain_slot_duration,
 		};
 
@@ -417,9 +416,9 @@ pub fn parachain_build_import_queue(
 			let time = sp_timestamp::InherentDataProvider::from_system_time();
 
 			let slot =
-				sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_duration(
+				sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
 					*time,
-					slot_duration.slot_duration(),
+					slot_duration,
 				);
 
 			Ok((time, slot))
@@ -484,9 +483,9 @@ pub async fn start_parachain_node(
 							let time = sp_timestamp::InherentDataProvider::from_system_time();
 
 							let slot =
-						sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_duration(
+						sp_consensus_aura::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
 							*time,
-							slot_duration.slot_duration(),
+							slot_duration,
 						);
 
 							let parachain_inherent = parachain_inherent.ok_or_else(|| {
