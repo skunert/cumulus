@@ -1,4 +1,5 @@
 (function() {var implementors = {};
+implementors["canvas_kusama_runtime"] = [{"text":"impl PalletInfo for <a class=\"struct\" href=\"canvas_kusama_runtime/struct.PalletInfo.html\" title=\"struct canvas_kusama_runtime::PalletInfo\">PalletInfo</a>","synthetic":false,"types":["canvas_kusama_runtime::PalletInfo"]}];
 implementors["cumulus_test_runtime"] = [{"text":"impl PalletInfo for <a class=\"struct\" href=\"cumulus_test_runtime/struct.PalletInfo.html\" title=\"struct cumulus_test_runtime::PalletInfo\">PalletInfo</a>","synthetic":false,"types":["cumulus_test_runtime::PalletInfo"]}];
 implementors["parachain_template_runtime"] = [{"text":"impl PalletInfo for <a class=\"struct\" href=\"parachain_template_runtime/struct.PalletInfo.html\" title=\"struct parachain_template_runtime::PalletInfo\">PalletInfo</a>","synthetic":false,"types":["parachain_template_runtime::PalletInfo"]}];
 implementors["rococo_parachain_runtime"] = [{"text":"impl PalletInfo for <a class=\"struct\" href=\"rococo_parachain_runtime/struct.PalletInfo.html\" title=\"struct rococo_parachain_runtime::PalletInfo\">PalletInfo</a>","synthetic":false,"types":["rococo_parachain_runtime::PalletInfo"]}];
