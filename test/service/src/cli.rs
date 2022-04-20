@@ -58,6 +58,10 @@ pub enum Commands {
 
 	#[clap(name = "export-genesis-state")]
 	ExportGenesisState(ExportGenesisStateCommand),
+
+	/// Build a chain specification.
+	BuildSpec(sc_cli::BuildSpecCmd),
+
 }
 
 #[derive(Debug, Parser)]
