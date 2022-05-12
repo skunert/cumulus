@@ -1,5 +1,5 @@
 Description: Small Network test
-Network: ./pov_recovery.toml
+Network: ./0002-pov_recovery.toml
 Creds: config
 
 

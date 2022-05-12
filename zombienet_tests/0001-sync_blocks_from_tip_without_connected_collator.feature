@@ -1,5 +1,5 @@
 Description: Small Network test
-Network: ./sync_blocks_from_tip_without_connected_collator.toml
+Network: ./0001-sync_blocks_from_tip_without_connected_collator.toml
 Creds: config
 
 

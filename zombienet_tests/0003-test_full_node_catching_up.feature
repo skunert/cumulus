@@ -1,5 +1,5 @@
 Description: Small Network test
-Network: ./test_full_node_catching_up.toml
+Network: ./0003-test_full_node_catching_up.toml
 Creds: config
 
 
