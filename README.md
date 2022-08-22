@@ -21,7 +21,7 @@ make it easy to write parachains for Polkadot by leveraging the power of Substra
 Cumulus clouds are shaped sort of like dots; together they form a system that is intricate,
 beautiful and functional.
 
-### Consensus
+### Consensus 2
 
 [`parachain-consensus`](https://github.com/paritytech/cumulus/blob/master/client/consensus/common/src/parachain_consensus.rs) is a
 [consensus engine](https://docs.substrate.io/v3/advanced/consensus) for Substrate
