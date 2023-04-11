@@ -464,17 +464,26 @@ impl RelayChainRpcClient {
 	}
 
 	/// Get a stream of all imported relay chain headers
-	pub fn get_imported_heads_stream(&self) -> Result<Receiver<RelayHeader>, RelayChainError> {
-		self.ws_client.get_imported_heads_stream()
+	pub fn get_imported_heads_stream(
+		&self,
+		id: String,
+	) -> Result<Receiver<RelayHeader>, RelayChainError> {
+		self.ws_client.get_imported_heads_stream(id)
 	}
 
 	/// Get a stream of new best relay chain headers
-	pub fn get_best_heads_stream(&self) -> Result<Receiver<RelayHeader>, RelayChainError> {
-		self.ws_client.get_best_heads_stream()
+	pub fn get_best_heads_stream(
+		&self,
+		id: String,
+	) -> Result<Receiver<RelayHeader>, RelayChainError> {
+		self.ws_client.get_best_heads_stream(id)
 	}
 
 	/// Get a stream of finalized relay chain headers
-	pub fn get_finalized_heads_stream(&self) -> Result<Receiver<RelayHeader>, RelayChainError> {
-		self.ws_client.get_finalized_heads_stream()
+	pub fn get_finalized_heads_stream(
+		&self,
+		id: String,
+	) -> Result<Receiver<RelayHeader>, RelayChainError> {
+		self.ws_client.get_finalized_heads_stream(id)
 	}
 }

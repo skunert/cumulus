@@ -107,7 +107,9 @@ impl RelayChainInterface for RelayChainRpcInterface {
 	async fn import_notification_stream(
 		&self,
 	) -> RelayChainResult<Pin<Box<dyn Stream<Item = RelayHeader> + Send>>> {
-		let imported_headers_stream = self.rpc_client.get_imported_heads_stream()?;
+		let id = uuid::Uuid::new_v4();
+		let imported_headers_stream =
+			self.rpc_client.get_imported_heads_stream(format!("interface: {}", id))?;
 
 		Ok(imported_headers_stream.boxed())
 	}
@@ -115,7 +117,9 @@ impl RelayChainInterface for RelayChainRpcInterface {
 	async fn finality_notification_stream(
 		&self,
 	) -> RelayChainResult<Pin<Box<dyn Stream<Item = RelayHeader> + Send>>> {
-		let imported_headers_stream = self.rpc_client.get_finalized_heads_stream()?;
+		let id = uuid::Uuid::new_v4();
+		let imported_headers_stream =
+			self.rpc_client.get_finalized_heads_stream(format!("interface: {}", id))?;
 
 		Ok(imported_headers_stream.boxed())
 	}
@@ -174,7 +178,9 @@ impl RelayChainInterface for RelayChainRpcInterface {
 	/// 3. Wait for the block to be imported via subscription.
 	/// 4. If timeout is reached, we return an error.
 	async fn wait_for_block(&self, wait_for_hash: RelayHash) -> RelayChainResult<()> {
-		let mut head_stream = self.rpc_client.get_imported_heads_stream()?;
+		let id = uuid::Uuid::new_v4();
+		let mut head_stream =
+			self.rpc_client.get_imported_heads_stream(format!("interface: {}", id))?;
 
 		if self.rpc_client.chain_get_header(Some(wait_for_hash)).await?.is_some() {
 			return Ok(())
@@ -198,7 +204,9 @@ impl RelayChainInterface for RelayChainRpcInterface {
 	async fn new_best_notification_stream(
 		&self,
 	) -> RelayChainResult<Pin<Box<dyn Stream<Item = RelayHeader> + Send>>> {
-		let imported_headers_stream = self.rpc_client.get_best_heads_stream()?;
+		let id = uuid::Uuid::new_v4();
+		let imported_headers_stream =
+			self.rpc_client.get_best_heads_stream(format!("interface: {}", id))?;
 		Ok(imported_headers_stream.boxed())
 	}
 }

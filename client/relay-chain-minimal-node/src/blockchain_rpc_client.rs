@@ -324,12 +324,20 @@ impl BlockChainRpcClient {
 	pub async fn import_notification_stream(
 		&self,
 	) -> RelayChainResult<Pin<Box<dyn Stream<Item = Header> + Send>>> {
-		Ok(self.rpc_client.get_imported_heads_stream()?.boxed())
+		let id = uuid::Uuid::new_v4();
+		Ok(self
+			.rpc_client
+			.get_imported_heads_stream(format!("rpc-client: {}", id))?
+			.boxed())
 	}
 
 	pub async fn finality_notification_stream(
 		&self,
 	) -> RelayChainResult<Pin<Box<dyn Stream<Item = Header> + Send>>> {
-		Ok(self.rpc_client.get_finalized_heads_stream()?.boxed())
+		let id = uuid::Uuid::new_v4();
+		Ok(self
+			.rpc_client
+			.get_finalized_heads_stream(format!("rpc-client: {}", id))?
+			.boxed())
 	}
 }

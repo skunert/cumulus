@@ -50,9 +50,9 @@ const LOG_TARGET: &str = "reconnecting-websocket-client";
 /// Messages for communication between [`ReconnectingWsClient`] and [`ReconnectingWebsocketWorker`].
 #[derive(Debug)]
 enum RpcDispatcherMessage {
-	RegisterBestHeadListener(Sender<RelayHeader>),
-	RegisterImportListener(Sender<RelayHeader>),
-	RegisterFinalizationListener(Sender<RelayHeader>),
+	RegisterBestHeadListener(Sender<RelayHeader>, String),
+	RegisterImportListener(Sender<RelayHeader>, String),
+	RegisterFinalizationListener(Sender<RelayHeader>, String),
 	Request(String, ArrayParams, OneshotSender<Result<JsonValue, JsonRpseeError>>),
 }
 
@@ -126,28 +126,39 @@ impl ReconnectingWsClient {
 	}
 
 	/// Get a stream of new best relay chain headers
-	pub fn get_best_heads_stream(&self) -> Result<Receiver<RelayHeader>, RelayChainError> {
+	pub fn get_best_heads_stream(
+		&self,
+		id: String,
+	) -> Result<Receiver<RelayHeader>, RelayChainError> {
 		let (tx, rx) =
 			futures::channel::mpsc::channel::<RelayHeader>(NOTIFICATION_CHANNEL_SIZE_LIMIT);
-		self.send_register_message_to_worker(RpcDispatcherMessage::RegisterBestHeadListener(tx))?;
+		self.send_register_message_to_worker(RpcDispatcherMessage::RegisterBestHeadListener(
+			tx, id,
+		))?;
 		Ok(rx)
 	}
 
 	/// Get a stream of finalized relay chain headers
-	pub fn get_finalized_heads_stream(&self) -> Result<Receiver<RelayHeader>, RelayChainError> {
+	pub fn get_finalized_heads_stream(
+		&self,
+		id: String,
+	) -> Result<Receiver<RelayHeader>, RelayChainError> {
 		let (tx, rx) =
 			futures::channel::mpsc::channel::<RelayHeader>(NOTIFICATION_CHANNEL_SIZE_LIMIT);
 		self.send_register_message_to_worker(RpcDispatcherMessage::RegisterFinalizationListener(
-			tx,
+			tx, id,
 		))?;
 		Ok(rx)
 	}
 
 	/// Get a stream of all imported relay chain headers
-	pub fn get_imported_heads_stream(&self) -> Result<Receiver<RelayHeader>, RelayChainError> {
+	pub fn get_imported_heads_stream(
+		&self,
+		id: String,
+	) -> Result<Receiver<RelayHeader>, RelayChainError> {
 		let (tx, rx) =
 			futures::channel::mpsc::channel::<RelayHeader>(NOTIFICATION_CHANNEL_SIZE_LIMIT);
-		self.send_register_message_to_worker(RpcDispatcherMessage::RegisterImportListener(tx))?;
+		self.send_register_message_to_worker(RpcDispatcherMessage::RegisterImportListener(tx, id))?;
 		Ok(rx)
 	}
 
@@ -168,25 +179,25 @@ struct ReconnectingWebsocketWorker {
 	client_receiver: TokioReceiver<RpcDispatcherMessage>,
 
 	/// Senders to distribute incoming header notifications to
-	imported_header_listeners: Vec<Sender<RelayHeader>>,
-	finalized_header_listeners: Vec<Sender<RelayHeader>>,
-	best_header_listeners: Vec<Sender<RelayHeader>>,
+	imported_header_listeners: Vec<(Sender<RelayHeader>, String)>,
+	finalized_header_listeners: Vec<(Sender<RelayHeader>, String)>,
+	best_header_listeners: Vec<(Sender<RelayHeader>, String)>,
 }
 
 fn distribute_header(
 	header: RelayHeader,
-	senders: &mut Vec<Sender<RelayHeader>>,
+	senders: &mut Vec<(Sender<RelayHeader>, String)>,
 	stream_type: &str,
 ) {
-	senders.retain_mut(|e| {
-				match e.try_send(header.clone()) {
+	senders.retain_mut(|sender| {
+				match sender.0.try_send(header.clone()) {
 					// Receiver has been dropped, remove Sender from list.
 					Err(error) if error.is_disconnected() => false,
 					// Channel is full. This should not happen.
 					// TODO: Improve error handling here
 					// https://github.com/paritytech/cumulus/issues/1482
 					Err(error) => {
-						tracing::error!(target: LOG_TARGET, ?error, stream_type, "Event distribution channel has reached its limit. This can lead to missed notifications.");
+						tracing::error!(target: LOG_TARGET, ?error, stream_type, id = sender.1, "Event distribution channel has reached its limit. This can lead to missed notifications. number = {}, hash = {:?}", header.number, header.hash());
 						true
 					},
 					_ => true,
@@ -455,14 +466,14 @@ impl ReconnectingWebsocketWorker {
 
 			tokio::select! {
 				evt = self.client_receiver.recv() => match evt {
-					Some(RpcDispatcherMessage::RegisterBestHeadListener(tx)) => {
-						self.best_header_listeners.push(tx);
+					Some(RpcDispatcherMessage::RegisterBestHeadListener(tx, id)) => {
+						self.best_header_listeners.push((tx, id));
 					},
-					Some(RpcDispatcherMessage::RegisterImportListener(tx)) => {
-						self.imported_header_listeners.push(tx)
+					Some(RpcDispatcherMessage::RegisterImportListener(tx, id)) => {
+						self.imported_header_listeners.push((tx, id))
 					},
-					Some(RpcDispatcherMessage::RegisterFinalizationListener(tx)) => {
-						self.finalized_header_listeners.push(tx)
+					Some(RpcDispatcherMessage::RegisterFinalizationListener(tx, id)) => {
+						self.finalized_header_listeners.push((tx, id))
 					},
 					Some(RpcDispatcherMessage::Request(method, params, response_sender)) => {
 						pending_requests.push(client_manager.create_request(method, params, response_sender));
