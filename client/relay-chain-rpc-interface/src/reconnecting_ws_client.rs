@@ -173,7 +173,11 @@ struct ReconnectingWebsocketWorker {
 	best_header_listeners: Vec<Sender<RelayHeader>>,
 }
 
-fn distribute_header(header: RelayHeader, senders: &mut Vec<Sender<RelayHeader>>) {
+fn distribute_header(
+	header: RelayHeader,
+	senders: &mut Vec<Sender<RelayHeader>>,
+	stream_type: &str,
+) {
 	senders.retain_mut(|e| {
 				match e.try_send(header.clone()) {
 					// Receiver has been dropped, remove Sender from list.
@@ -182,7 +186,7 @@ fn distribute_header(header: RelayHeader, senders: &mut Vec<Sender<RelayHeader>>
 					// TODO: Improve error handling here
 					// https://github.com/paritytech/cumulus/issues/1482
 					Err(error) => {
-						tracing::error!(target: LOG_TARGET, ?error, "Event distribution channel has reached its limit. This can lead to missed notifications.");
+						tracing::error!(target: LOG_TARGET, ?error, stream_type, "Event distribution channel has reached its limit. This can lead to missed notifications.");
 						true
 					},
 					_ => true,
@@ -487,7 +491,7 @@ impl ReconnectingWebsocketWorker {
 								continue;
 							}
 							imported_blocks_cache.put(hash, ());
-							distribute_header(header, &mut self.imported_header_listeners);
+							distribute_header(header, &mut self.imported_header_listeners, "import_stream");
 						},
 						None => {
 							tracing::error!(target: LOG_TARGET, "Subscription closed.");
@@ -501,7 +505,7 @@ impl ReconnectingWebsocketWorker {
 				},
 				best_header_event = subscriptions.best_subscription.next() => {
 					match best_header_event {
-						Some(Ok(header)) => distribute_header(header, &mut self.best_header_listeners),
+						Some(Ok(header)) => distribute_header(header, &mut self.best_header_listeners, "best_stream" ),
 						None => {
 							tracing::error!(target: LOG_TARGET, "Subscription closed.");
 							should_reconnect = ConnectionStatus::ReconnectRequired(None);
@@ -516,7 +520,7 @@ impl ReconnectingWebsocketWorker {
 					match finalized_event {
 						Some(Ok(header)) if header.number > last_seen_finalized_num => {
 							last_seen_finalized_num = header.number;
-							distribute_header(header, &mut self.finalized_header_listeners);
+							distribute_header(header, &mut self.finalized_header_listeners, "finalized_stream");
 						},
 						Some(Ok(header)) => {
 							tracing::debug!(
