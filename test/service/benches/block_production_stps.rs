@@ -19,7 +19,10 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 
 use cumulus_primitives_core::relay_chain::AccountId;
-use kitchensink_runtime::{constants::currency::*, BalancesCall, SudoCall};
+use kitchensink_runtime::{
+	constants::{currency::*, time::SLOT_DURATION},
+	BalancesCall, SudoCall,
+};
 use node_cli::service::{create_extrinsic, FullClient};
 use sc_block_builder::{BlockBuilderProvider, BuiltBlock, RecordProof};
 use sc_client_api::execution_extensions::ExecutionStrategies;
@@ -166,7 +169,7 @@ fn extrinsic_set_balance(
 	extrinsic.into()
 }
 
-fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
+fn create_accounts(client: &FullClient) -> (Vec<sr25519::Pair>, Vec<sr25519::Pair>) {
 	let mut src_accounts: Vec<sr25519::Pair> = Default::default();
 	let mut dst_accounts: Vec<sr25519::Pair> = Default::default();
 	// Create 20.000 accounts for max 10.000 transfers
@@ -183,22 +186,53 @@ fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
 	let mut alice_nonce = 0;
 	let time_ext = extrinsic_set_time(1);
 	block_builder.push(time_ext).expect("Should be able to set time");
+	let mut counter = 0;
+	let mut time_multiplier = 1;
 	for acc in src_accounts.iter().chain(dst_accounts.iter()) {
 		let ex = extrinsic_set_balance(client, &mut alice_nonce, acc.public().into());
-		block_builder.push(ex).expect("Should be able to set balance");
+		match block_builder.push(ex.clone()) {
+			Ok(_) => {},
+			Err(ApplyExtrinsicFailed(Validity(TransactionValidityError::Invalid(
+				InvalidTransaction::ExhaustsResources,
+			)))) => {
+				let new_block = block_builder.build().unwrap();
+				import_block(client, new_block);
+				block_builder = client.new_block(Default::default()).unwrap();
+				let best_number = client.chain_info().best_number;
+				let new_time = (time_multiplier * SLOT_DURATION) - 1;
+				tracing::info!(
+					"New  round after {counter} items at best {best_number} at time {new_time}"
+				);
+				let time_ext = extrinsic_set_time(new_time);
+				time_multiplier += 1;
+				block_builder.push(time_ext).expect("Should be able to set time");
+				block_builder.push(ex.clone()).expect("First extrinsic should fit");
+				tracing::info!("Still alive");
+			},
+			Err(error) => panic!("{}", error),
+		}
+		counter += 1;
 	}
 
 	tracing::info!("Created {} accounts", src_accounts.len());
 	let new_block = block_builder.build().unwrap();
 	import_block(client, new_block);
+	tracing::info!("Here too");
 
+	(src_accounts, dst_accounts)
+}
+
+fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
+	let (src_accounts, dst_accounts) = create_accounts(client);
 	// Add as many tranfer extrinsics as possible into a single block.
 	let mut block_builder = client.new_block(Default::default()).unwrap();
 	let mut max_transfer_count = 0;
 	let mut extrinsics = Vec::new();
 	// Every block needs one timestamp extrinsic.
-	let time_ext = extrinsic_set_time(1 + MINIMUM_PERIOD_FOR_BLOCKS);
+	let time_ext = extrinsic_set_time(1 + SLOT_DURATION);
 	extrinsics.push(time_ext);
+
+	tracing::info!("yep");
 	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
 		let extrinsic: OpaqueExtrinsic = create_extrinsic(
 			client,
@@ -234,12 +268,6 @@ fn block_production(c: &mut Criterion) {
 
 	let node = new_node(tokio_handle.clone());
 	let client = &*node.client;
-
-	// Buliding the very first block is around ~30x slower than any subsequent one,
-	// so let's make sure it's built and imported before we benchmark anything.
-	//let mut block_builder = client.new_block(Default::default()).unwrap();
-	//block_builder.push(extrinsic_set_time(1)).unwrap();
-	//import_block(client, block_builder.build().unwrap());
 
 	let (max_transfer_count, extrinsics) = prepare_benchmark(&client);
 
