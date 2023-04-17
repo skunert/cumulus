@@ -18,9 +18,10 @@
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 
+use core::time::Duration;
 use cumulus_primitives_core::relay_chain::AccountId;
 use kitchensink_runtime::{
-	constants::{currency::*, time::SLOT_DURATION},
+	constants::{currency::*},
 	BalancesCall, SudoCall,
 };
 use node_cli::service::{create_extrinsic, FullClient};
@@ -125,7 +126,7 @@ fn new_node(tokio_handle: Handle) -> node_cli::service::NewFullBase {
 		.expect("creating a full node doesn't fail")
 }
 
-const MINIMUM_PERIOD_FOR_BLOCKS: u64 = 1500;
+const MINIMUM_PERIOD_FOR_BLOCKS: u64 = 1000;
 fn extrinsic_set_time(now: u64) -> OpaqueExtrinsic {
 	kitchensink_runtime::UncheckedExtrinsic {
 		signature: None,
@@ -184,10 +185,9 @@ fn create_accounts(client: &FullClient) -> (Vec<sr25519::Pair>, Vec<sr25519::Pai
 
 	let mut block_builder = client.new_block(Default::default()).unwrap();
 	let mut alice_nonce = 0;
-	let time_ext = extrinsic_set_time(1);
+	let time_ext = extrinsic_set_time(0);
 	block_builder.push(time_ext).expect("Should be able to set time");
 	let mut counter = 0;
-	let mut time_multiplier = 1;
 	for acc in src_accounts.iter().chain(dst_accounts.iter()) {
 		let ex = extrinsic_set_balance(client, &mut alice_nonce, acc.public().into());
 		match block_builder.push(ex.clone()) {
@@ -199,15 +199,10 @@ fn create_accounts(client: &FullClient) -> (Vec<sr25519::Pair>, Vec<sr25519::Pai
 				import_block(client, new_block);
 				block_builder = client.new_block(Default::default()).unwrap();
 				let best_number = client.chain_info().best_number;
-				let new_time = (time_multiplier * SLOT_DURATION) - 1;
-				tracing::info!(
-					"New  round after {counter} items at best {best_number} at time {new_time}"
-				);
+				let new_time = best_number * MINIMUM_PERIOD_FOR_BLOCKS;
 				let time_ext = extrinsic_set_time(new_time);
-				time_multiplier += 1;
 				block_builder.push(time_ext).expect("Should be able to set time");
 				block_builder.push(ex.clone()).expect("First extrinsic should fit");
-				tracing::info!("Still alive");
 			},
 			Err(error) => panic!("{}", error),
 		}
@@ -217,7 +212,6 @@ fn create_accounts(client: &FullClient) -> (Vec<sr25519::Pair>, Vec<sr25519::Pai
 	tracing::info!("Created {} accounts", src_accounts.len());
 	let new_block = block_builder.build().unwrap();
 	import_block(client, new_block);
-	tracing::info!("Here too");
 
 	(src_accounts, dst_accounts)
 }
@@ -229,15 +223,14 @@ fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
 	let mut max_transfer_count = 0;
 	let mut extrinsics = Vec::new();
 	// Every block needs one timestamp extrinsic.
-	let time_ext = extrinsic_set_time(1 + SLOT_DURATION);
+	let time_ext = extrinsic_set_time(client.chain_info().best_number * MINIMUM_PERIOD_FOR_BLOCKS);
 	extrinsics.push(time_ext);
 
-	tracing::info!("yep");
 	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
 		let extrinsic: OpaqueExtrinsic = create_extrinsic(
 			client,
 			src.clone(),
-			BalancesCall::transfer_allow_death {
+			BalancesCall::transfer_keep_alive {
 				dest: AccountId::from(dst.public()).into(),
 				value: 1 * DOLLARS,
 			},
@@ -275,7 +268,8 @@ fn block_production(c: &mut Criterion) {
 
 	let mut group = c.benchmark_group("Block production");
 
-	group.sample_size(10);
+	group.sample_size(20);
+	group.measurement_time(Duration::from_secs(45));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
 	let best_hash = client.chain_info().best_hash;
