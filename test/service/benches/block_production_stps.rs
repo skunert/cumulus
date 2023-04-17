@@ -19,7 +19,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 
 use cumulus_primitives_core::relay_chain::AccountId;
-use kitchensink_runtime::{constants::currency::*, BalancesCall};
+use kitchensink_runtime::{constants::currency::*, BalancesCall, SudoCall};
 use node_cli::service::{create_extrinsic, FullClient};
 use sc_block_builder::{BlockBuilderProvider, BuiltBlock, RecordProof};
 use sc_client_api::execution_extensions::ExecutionStrategies;
@@ -42,20 +42,10 @@ use sp_keyring::{
 	Sr25519Keyring,
 };
 use sp_runtime::{
-	traits::IdentifyAccount,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
-	AccountId32, MultiAddress, OpaqueExtrinsic,
+	OpaqueExtrinsic,
 };
 use tokio::runtime::Handle;
-
-fn create_accounts(num: usize) -> Vec<sr25519::Pair> {
-	(0..num)
-		.map(|i| {
-			Pair::from_string(&format!("{}/{}", Alice.to_seed(), i), None)
-				.expect("Creates account pair")
-		})
-		.collect()
-}
 
 fn new_node(tokio_handle: Handle) -> node_cli::service::NewFullBase {
 	let base_path = BasePath::new_temp_dir()
@@ -132,6 +122,7 @@ fn new_node(tokio_handle: Handle) -> node_cli::service::NewFullBase {
 		.expect("creating a full node doesn't fail")
 }
 
+const MINIMUM_PERIOD_FOR_BLOCKS: u64 = 1500;
 fn extrinsic_set_time(now: u64) -> OpaqueExtrinsic {
 	kitchensink_runtime::UncheckedExtrinsic {
 		signature: None,
@@ -155,24 +146,60 @@ fn import_block(
 		.expect("importing a block doesn't fail");
 }
 
+fn extrinsic_set_balance(
+	client: &FullClient,
+	nonce: &mut u32,
+	dst: sp_runtime::AccountId32,
+) -> OpaqueExtrinsic {
+	let extrinsic = create_extrinsic(
+		client,
+		Sr25519Keyring::Alice.pair(),
+		SudoCall::sudo {
+			call: Box::new(
+				BalancesCall::force_set_balance { who: dst.into(), new_free: 1_000_000 * DOLLARS }
+					.into(),
+			),
+		},
+		Some(*nonce),
+	);
+	*nonce += 1;
+	extrinsic.into()
+}
+
 fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
-	const MINIMUM_PERIOD_FOR_BLOCKS: u64 = 1500;
+	let mut src_accounts: Vec<sr25519::Pair> = Default::default();
+	let mut dst_accounts: Vec<sr25519::Pair> = Default::default();
+	// Create 20.000 accounts for max 10.000 transfers
+	for i in 0..10000 {
+		let src: sr25519::Pair = Pair::from_string(&format!("{}/{}", Alice.to_seed(), i), None)
+			.expect("Creates account pair");
+		let dst: sr25519::Pair = Pair::from_string(&format!("{}/{}", Bob.to_seed(), i), None)
+			.expect("Creates account pair");
+		src_accounts.push(src);
+		dst_accounts.push(dst);
+	}
 
-	let mut max_transfer_count = 0;
-	let mut extrinsics = Vec::new();
 	let mut block_builder = client.new_block(Default::default()).unwrap();
+	let mut alice_nonce = 0;
+	let time_ext = extrinsic_set_time(1);
+	block_builder.push(time_ext).expect("Should be able to set time");
+	for acc in src_accounts.iter().chain(dst_accounts.iter()) {
+		let ex = extrinsic_set_balance(client, &mut alice_nonce, acc.public().into());
+		block_builder.push(ex).expect("Should be able to set balance");
+	}
 
-	// Every block needs one timestamp extrinsic.
-	let extrinsic_set_time = extrinsic_set_time(1 + MINIMUM_PERIOD_FOR_BLOCKS);
-	block_builder.push(extrinsic_set_time.clone()).unwrap();
-	extrinsics.push(extrinsic_set_time);
-
-	// Creating those is surprisingly costly, so let's only do it once and later just `clone` them.
-	let src = Sr25519Keyring::Alice.pair();
-	let dst: MultiAddress<AccountId32, u32> = Sr25519Keyring::Bob.to_account_id().into();
+	tracing::info!("Created {} accounts", src_accounts.len());
+	let new_block = block_builder.build().unwrap();
+	import_block(client, new_block);
 
 	// Add as many tranfer extrinsics as possible into a single block.
-	for nonce in 0.. {
+	let mut block_builder = client.new_block(Default::default()).unwrap();
+	let mut max_transfer_count = 0;
+	let mut extrinsics = Vec::new();
+	// Every block needs one timestamp extrinsic.
+	let time_ext = extrinsic_set_time(1 + MINIMUM_PERIOD_FOR_BLOCKS);
+	extrinsics.push(time_ext);
+	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
 		let extrinsic: OpaqueExtrinsic = create_extrinsic(
 			client,
 			src.clone(),
@@ -180,7 +207,7 @@ fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
 				dest: AccountId::from(dst.public()).into(),
 				value: 1 * DOLLARS,
 			},
-			Some(nonce),
+			Some(0),
 		)
 		.into();
 
@@ -194,10 +221,6 @@ fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
 
 		extrinsics.push(extrinsic);
 		max_transfer_count += 1;
-
-		if nonce % 100 == 0 {
-			println!("Iterating {}", nonce);
-		}
 	}
 
 	(max_transfer_count, extrinsics)
@@ -214,11 +237,12 @@ fn block_production(c: &mut Criterion) {
 
 	// Buliding the very first block is around ~30x slower than any subsequent one,
 	// so let's make sure it's built and imported before we benchmark anything.
-	let mut block_builder = client.new_block(Default::default()).unwrap();
-	block_builder.push(extrinsic_set_time(1)).unwrap();
-	import_block(client, block_builder.build().unwrap());
+	//let mut block_builder = client.new_block(Default::default()).unwrap();
+	//block_builder.push(extrinsic_set_time(1)).unwrap();
+	//import_block(client, block_builder.build().unwrap());
 
 	let (max_transfer_count, extrinsics) = prepare_benchmark(&client);
+
 	tracing::info!("Maximum transfer count: {}", max_transfer_count);
 
 	let mut group = c.benchmark_group("Block production");
