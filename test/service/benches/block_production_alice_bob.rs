@@ -191,10 +191,6 @@ fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
 
 		extrinsics.push(extrinsic);
 		max_transfer_count += 1;
-
-		if nonce % 100 == 0 {
-			println!("Iterating {}", nonce);
-		}
 	}
 
 	(max_transfer_count, extrinsics)
@@ -220,7 +216,7 @@ fn block_production(c: &mut Criterion) {
 
 	let mut group = c.benchmark_group("Block production");
 
-	group.sample_size(10);
+	group.sample_size(20);
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
 	let best_hash = client.chain_info().best_hash;
