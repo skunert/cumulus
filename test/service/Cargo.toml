@@ -78,10 +78,13 @@ portpicker = "0.1.1"
 kitchensink-runtime = { git = "https://github.com/paritytech/substrate", branch = "master" }
 node-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
 pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "master" }
+pallet-im-online = { git = "https://github.com/paritytech/substrate", branch = "master" }
 node-primitives = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sc-block-builder = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-consensus = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sp-consensus-grandpa = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sp-authority-discovery = { git = "https://github.com/paritytech/substrate", branch = "master" }
 
 # Polkadot dependencies
 polkadot-test-service = { git = "https://github.com/paritytech/polkadot", branch = "master" }

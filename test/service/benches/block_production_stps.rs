@@ -17,20 +17,18 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use sc_chain_spec::ChainType;
 
 use core::time::Duration;
 use cumulus_primitives_core::relay_chain::AccountId;
-use kitchensink_runtime::{
-	constants::{currency::*},
-	BalancesCall, SudoCall,
+use kitchensink_runtime::{constants::currency::*, BalancesCall, *};
+use node_cli::{
+	chain_spec::{authority_keys_from_seed, get_account_id_from_seed, Balance, ChainSpec},
+	service::{create_extrinsic, FullClient},
 };
-use node_cli::service::{create_extrinsic, FullClient};
-use sc_block_builder::{BlockBuilderProvider, BuiltBlock, RecordProof};
+use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
+use sc_block_builder::{BlockBuilderProvider, RecordProof};
 use sc_client_api::execution_extensions::ExecutionStrategies;
-use sc_consensus::{
-	block_import::{BlockImportParams, ForkChoiceStrategy},
-	BlockImport, StateAction,
-};
 use sc_service::{
 	config::{
 		BlocksPruning, DatabaseSource, KeystoreConfig, NetworkConfiguration, OffchainWorkerConfig,
@@ -38,20 +36,127 @@ use sc_service::{
 	},
 	BasePath, Configuration, Role,
 };
+use sp_authority_discovery::AuthorityId as AuthorityDiscoveryId;
 use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed};
-use sp_consensus::BlockOrigin;
+use sp_consensus_babe::AuthorityId as BabeId;
+use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{sr25519, Pair};
-use sp_keyring::{
-	Ed25519Keyring::{Alice, Bob},
-	Sr25519Keyring,
-};
+use sp_keyring::{Ed25519Keyring::Alice, Sr25519Keyring};
 use sp_runtime::{
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
-	OpaqueExtrinsic,
+	OpaqueExtrinsic, Perbill,
 };
 use tokio::runtime::Handle;
 
-fn new_node(tokio_handle: Handle) -> node_cli::service::NewFullBase {
+fn session_keys(
+	grandpa: GrandpaId,
+	babe: BabeId,
+	im_online: ImOnlineId,
+	authority_discovery: AuthorityDiscoveryId,
+) -> SessionKeys {
+	SessionKeys { grandpa, babe, im_online, authority_discovery }
+}
+
+pub fn benchmark_genesis(
+	initial_authorities: Vec<(
+		AccountId,
+		AccountId,
+		GrandpaId,
+		BabeId,
+		ImOnlineId,
+		AuthorityDiscoveryId,
+	)>,
+	initial_nominators: Vec<AccountId>,
+	root_key: AccountId,
+	endowed_accounts: Option<Vec<AccountId>>,
+) -> GenesisConfig {
+	let mut endowed_accounts: Vec<AccountId> = endowed_accounts.unwrap_or_else(|| {
+		vec![
+			get_account_id_from_seed::<sr25519::Public>("Alice"),
+			get_account_id_from_seed::<sr25519::Public>("Bob"),
+			get_account_id_from_seed::<sr25519::Public>("Charlie"),
+			get_account_id_from_seed::<sr25519::Public>("Dave"),
+			get_account_id_from_seed::<sr25519::Public>("Eve"),
+			get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+			get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
+			get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
+			get_account_id_from_seed::<sr25519::Public>("Charlie//stash"),
+			get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
+			get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
+			get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
+		]
+	});
+	// endow all authorities and nominators.
+	initial_authorities
+		.iter()
+		.map(|x| &x.0)
+		.chain(initial_nominators.iter())
+		.for_each(|x| {
+			if !endowed_accounts.contains(x) {
+				endowed_accounts.push(x.clone())
+			}
+		});
+
+	const ENDOWMENT: Balance = 10_000_000 * DOLLARS;
+
+	GenesisConfig {
+		system: SystemConfig { code: wasm_binary_unwrap().to_vec() },
+		balances: BalancesConfig {
+			balances: endowed_accounts.iter().cloned().map(|x| (x, ENDOWMENT)).collect(),
+		},
+		indices: IndicesConfig { indices: vec![] },
+		session: SessionConfig {
+			keys: initial_authorities
+				.iter()
+				.map(|x| {
+					(
+						x.0.clone(),
+						x.0.clone(),
+						session_keys(x.2.clone(), x.3.clone(), x.4.clone(), x.5.clone()),
+					)
+				})
+				.collect::<Vec<_>>(),
+		},
+		staking: StakingConfig {
+			validator_count: initial_authorities.len() as u32,
+			minimum_validator_count: initial_authorities.len() as u32,
+			invulnerables: initial_authorities.iter().map(|x| x.0.clone()).collect(),
+			slash_reward_fraction: Perbill::from_percent(10),
+			..Default::default()
+		},
+		democracy: DemocracyConfig::default(),
+		elections: ElectionsConfig::default(),
+		council: CouncilConfig::default(),
+		technical_committee: TechnicalCommitteeConfig::default(),
+		sudo: SudoConfig { key: Some(root_key) },
+		babe: BabeConfig {
+			authorities: vec![],
+			epoch_config: Some(kitchensink_runtime::BABE_GENESIS_EPOCH_CONFIG),
+		},
+		im_online: ImOnlineConfig { keys: vec![] },
+		authority_discovery: AuthorityDiscoveryConfig { keys: vec![] },
+		grandpa: GrandpaConfig { authorities: vec![] },
+		technical_membership: Default::default(),
+		treasury: Default::default(),
+		society: SocietyConfig { members: Default::default(), pot: 0, max_members: 999 },
+		vesting: Default::default(),
+		assets: Default::default(),
+		transaction_storage: Default::default(),
+		transaction_payment: Default::default(),
+		alliance: Default::default(),
+		alliance_motion: Default::default(),
+		nomination_pools: NominationPoolsConfig {
+			min_create_bond: 10 * DOLLARS,
+			min_join_bond: 1 * DOLLARS,
+			..Default::default()
+		},
+	}
+}
+
+fn new_node(
+	tokio_handle: Handle,
+	endowed_accounts: Vec<AccountId>,
+) -> node_cli::service::NewFullBase {
 	let base_path = BasePath::new_temp_dir()
 		.expect("getting the base path of a temporary path doesn't fail; qed");
 	let root = base_path.path().to_path_buf();
@@ -62,8 +167,27 @@ fn new_node(tokio_handle: Handle) -> node_cli::service::NewFullBase {
 		Default::default(),
 		None,
 	);
+	let genesis_function = move || {
+		benchmark_genesis(
+			vec![authority_keys_from_seed("Alice")],
+			vec![],
+			get_account_id_from_seed::<sr25519::Public>("Alice"),
+			Some(endowed_accounts.clone()),
+		)
+	};
 
-	let spec = Box::new(node_cli::chain_spec::development_config());
+	let spec = ChainSpec::from_genesis(
+		"Benchmark",
+		"dev",
+		ChainType::Development,
+		genesis_function,
+		Default::default(),
+		Default::default(),
+		Default::default(),
+		Default::default(),
+		Default::default(),
+		Default::default(),
+	);
 
 	// NOTE: We enforce the use of the WASM runtime to benchmark block production using WASM.
 	let execution_strategy = sc_client_api::ExecutionStrategy::AlwaysWasm;
@@ -82,7 +206,7 @@ fn new_node(tokio_handle: Handle) -> node_cli::service::NewFullBase {
 		trie_cache_maximum_size: Some(64 * 1024 * 1024),
 		state_pruning: Some(PruningMode::ArchiveAll),
 		blocks_pruning: BlocksPruning::KeepAll,
-		chain_spec: spec,
+		chain_spec: Box::new(spec),
 		wasm_method: WasmExecutionMethod::Compiled {
 			instantiation_strategy: WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
 		},
@@ -126,7 +250,6 @@ fn new_node(tokio_handle: Handle) -> node_cli::service::NewFullBase {
 		.expect("creating a full node doesn't fail")
 }
 
-const MINIMUM_PERIOD_FOR_BLOCKS: u64 = 1000;
 fn extrinsic_set_time(now: u64) -> OpaqueExtrinsic {
 	kitchensink_runtime::UncheckedExtrinsic {
 		signature: None,
@@ -135,95 +258,17 @@ fn extrinsic_set_time(now: u64) -> OpaqueExtrinsic {
 	.into()
 }
 
-fn import_block(
-	mut client: &FullClient,
-	built: BuiltBlock<
-		node_primitives::Block,
-		<FullClient as sp_api::CallApiAt<node_primitives::Block>>::StateBackend,
-	>,
-) {
-	let mut params = BlockImportParams::new(BlockOrigin::File, built.block.header);
-	params.state_action =
-		StateAction::ApplyChanges(sc_consensus::StorageChanges::Changes(built.storage_changes));
-	params.fork_choice = Some(ForkChoiceStrategy::LongestChain);
-	futures::executor::block_on(client.import_block(params))
-		.expect("importing a block doesn't fail");
-}
-
-fn extrinsic_set_balance(
+fn prepare_benchmark(
 	client: &FullClient,
-	nonce: &mut u32,
-	dst: sp_runtime::AccountId32,
-) -> OpaqueExtrinsic {
-	let extrinsic = create_extrinsic(
-		client,
-		Sr25519Keyring::Alice.pair(),
-		SudoCall::sudo {
-			call: Box::new(
-				BalancesCall::force_set_balance { who: dst.into(), new_free: 1_000_000 * DOLLARS }
-					.into(),
-			),
-		},
-		Some(*nonce),
-	);
-	*nonce += 1;
-	extrinsic.into()
-}
-
-fn create_accounts(client: &FullClient) -> (Vec<sr25519::Pair>, Vec<sr25519::Pair>) {
-	let mut src_accounts: Vec<sr25519::Pair> = Default::default();
-	let mut dst_accounts: Vec<sr25519::Pair> = Default::default();
-	// Create 20.000 accounts for max 10.000 transfers
-	for i in 0..10000 {
-		let src: sr25519::Pair = Pair::from_string(&format!("{}/{}", Alice.to_seed(), i), None)
-			.expect("Creates account pair");
-		let dst: sr25519::Pair = Pair::from_string(&format!("{}/{}", Bob.to_seed(), i), None)
-			.expect("Creates account pair");
-		src_accounts.push(src);
-		dst_accounts.push(dst);
-	}
-
-	let mut block_builder = client.new_block(Default::default()).unwrap();
-	let mut alice_nonce = 0;
-	let time_ext = extrinsic_set_time(0);
-	block_builder.push(time_ext).expect("Should be able to set time");
-	let mut counter = 0;
-	for acc in src_accounts.iter().chain(dst_accounts.iter()) {
-		let ex = extrinsic_set_balance(client, &mut alice_nonce, acc.public().into());
-		match block_builder.push(ex.clone()) {
-			Ok(_) => {},
-			Err(ApplyExtrinsicFailed(Validity(TransactionValidityError::Invalid(
-				InvalidTransaction::ExhaustsResources,
-			)))) => {
-				let new_block = block_builder.build().unwrap();
-				import_block(client, new_block);
-				block_builder = client.new_block(Default::default()).unwrap();
-				let best_number = client.chain_info().best_number;
-				let new_time = best_number * MINIMUM_PERIOD_FOR_BLOCKS;
-				let time_ext = extrinsic_set_time(new_time);
-				block_builder.push(time_ext).expect("Should be able to set time");
-				block_builder.push(ex.clone()).expect("First extrinsic should fit");
-			},
-			Err(error) => panic!("{}", error),
-		}
-		counter += 1;
-	}
-
-	tracing::info!("Created {} accounts", src_accounts.len());
-	let new_block = block_builder.build().unwrap();
-	import_block(client, new_block);
-
-	(src_accounts, dst_accounts)
-}
-
-fn prepare_benchmark(client: &FullClient) -> (usize, Vec<OpaqueExtrinsic>) {
-	let (src_accounts, dst_accounts) = create_accounts(client);
+	src_accounts: &[sr25519::Pair],
+	dst_accounts: &[sr25519::Pair],
+) -> (usize, Vec<OpaqueExtrinsic>) {
 	// Add as many tranfer extrinsics as possible into a single block.
 	let mut block_builder = client.new_block(Default::default()).unwrap();
 	let mut max_transfer_count = 0;
 	let mut extrinsics = Vec::new();
 	// Every block needs one timestamp extrinsic.
-	let time_ext = extrinsic_set_time(client.chain_info().best_number * MINIMUM_PERIOD_FOR_BLOCKS);
+	let time_ext = extrinsic_set_time(0);
 	extrinsics.push(time_ext);
 
 	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
@@ -259,10 +304,23 @@ fn block_production(c: &mut Criterion) {
 	let runtime = tokio::runtime::Runtime::new().expect("creating tokio runtime doesn't fail; qed");
 	let tokio_handle = runtime.handle().clone();
 
-	let node = new_node(tokio_handle.clone());
+	let accounts: Vec<sr25519::Pair> = (0..20000)
+		.into_iter()
+		.map(|idx| {
+			Pair::from_string(&format!("{}/{}", Alice.to_seed(), idx), None)
+				.expect("Creates account pair")
+		})
+		.collect();
+	let endowed_public_keys = accounts
+		.iter()
+		.map(|account| AccountId::from(account.public()))
+		.collect::<Vec<AccountId>>();
+
+	let node = new_node(tokio_handle.clone(), endowed_public_keys);
 	let client = &*node.client;
 
-	let (max_transfer_count, extrinsics) = prepare_benchmark(&client);
+	let (src_accounts, dst_accounts) = accounts.split_at(10000);
+	let (max_transfer_count, extrinsics) = prepare_benchmark(&client, src_accounts, dst_accounts);
 
 	tracing::info!("Maximum transfer count: {}", max_transfer_count);
 
