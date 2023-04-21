@@ -156,10 +156,10 @@ pub fn benchmark_genesis(
 fn new_node(
 	tokio_handle: Handle,
 	endowed_accounts: Vec<AccountId>,
+	db_path: PathBuf,
 ) -> node_cli::service::NewFullBase {
 	let base_path = BasePath::new_temp_dir()
 		.expect("getting the base path of a temporary path doesn't fail; qed");
-	let root = base_path.path().to_path_buf();
 
 	let network_config = NetworkConfiguration::new(
 		Sr25519Keyring::Alice.to_seed(),
@@ -202,7 +202,7 @@ fn new_node(
 		transaction_pool: Default::default(),
 		network: network_config,
 		keystore: KeystoreConfig::InMemory,
-		database: DatabaseSource::ParityDb { path: root.join("db") },
+		database: DatabaseSource::ParityDb { path: db_path },
 		trie_cache_maximum_size: Some(64 * 1024 * 1024),
 		state_pruning: Some(PruningMode::ArchiveAll),
 		blocks_pruning: BlocksPruning::KeepAll,
@@ -316,6 +316,7 @@ fn block_production(c: &mut Criterion) {
 		.map(|account| AccountId::from(account.public()))
 		.collect::<Vec<AccountId>>();
 
+	let root = base_path.path().to_path_buf().join("db");
 	let node = new_node(tokio_handle.clone(), endowed_public_keys);
 	let client = &*node.client;
 
@@ -338,21 +339,6 @@ fn block_production(c: &mut Criterion) {
 			|extrinsics| {
 				let mut block_builder =
 					client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
-				for extrinsic in extrinsics {
-					block_builder.push(extrinsic).unwrap();
-				}
-				block_builder.build().unwrap()
-			},
-			BatchSize::SmallInput,
-		)
-	});
-
-	group.bench_function(format!("{} transfers (with proof)", max_transfer_count), |b| {
-		b.iter_batched(
-			|| extrinsics.clone(),
-			|extrinsics| {
-				let mut block_builder =
-					client.new_block_at(best_hash, Default::default(), RecordProof::Yes).unwrap();
 				for extrinsic in extrinsics {
 					block_builder.push(extrinsic).unwrap();
 				}

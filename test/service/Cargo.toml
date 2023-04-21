@@ -107,3 +107,7 @@ harness = false
 [[bench]]
 name = "block_production_stps"
 harness = false
+
+[[bench]]
+name = "block_import_stps"
+harness = false
