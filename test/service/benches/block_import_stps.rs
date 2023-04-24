@@ -27,8 +27,12 @@ use node_cli::{
 	service::{create_extrinsic, FullClient},
 };
 use pallet_im_online::sr25519::AuthorityId as ImOnlineId;
-use sc_block_builder::{BlockBuilderProvider, RecordProof};
+use sc_block_builder::{BlockBuilderProvider, BuiltBlock, RecordProof};
 use sc_client_api::execution_extensions::ExecutionStrategies;
+use sc_consensus::{
+	block_import::{BlockImportParams, ForkChoiceStrategy},
+	BlockImport, ImportResult, StateAction,
+};
 use sc_service::{
 	config::{
 		BlocksPruning, DatabaseSource, KeystoreConfig, NetworkConfiguration, OffchainWorkerConfig,
@@ -38,6 +42,7 @@ use sc_service::{
 };
 use sp_authority_discovery::AuthorityId as AuthorityDiscoveryId;
 use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed};
+use sp_consensus::BlockOrigin;
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{sr25519, Pair};
@@ -46,6 +51,7 @@ use sp_runtime::{
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 	OpaqueExtrinsic, Perbill,
 };
+use std::{fs::File, path::PathBuf};
 use tokio::runtime::Handle;
 
 fn session_keys(
@@ -133,23 +139,19 @@ pub fn benchmark_genesis(
 			authorities: vec![],
 			epoch_config: Some(kitchensink_runtime::BABE_GENESIS_EPOCH_CONFIG),
 		},
-		im_online: ImOnlineConfig { keys: vec![] },
-		authority_discovery: AuthorityDiscoveryConfig { keys: vec![] },
-		grandpa: GrandpaConfig { authorities: vec![] },
+		im_online: Default::default(),
+		authority_discovery: Default::default(),
+		grandpa: Default::default(),
 		technical_membership: Default::default(),
 		treasury: Default::default(),
-		society: SocietyConfig { members: Default::default(), pot: 0, max_members: 999 },
+		society: Default::default(),
 		vesting: Default::default(),
 		assets: Default::default(),
 		transaction_storage: Default::default(),
 		transaction_payment: Default::default(),
 		alliance: Default::default(),
 		alliance_motion: Default::default(),
-		nomination_pools: NominationPoolsConfig {
-			min_create_bond: 10 * DOLLARS,
-			min_join_bond: 1 * DOLLARS,
-			..Default::default()
-		},
+		nomination_pools: Default::default(),
 	}
 }
 
@@ -268,7 +270,7 @@ fn prepare_benchmark(
 	let mut max_transfer_count = 0;
 	let mut extrinsics = Vec::new();
 	// Every block needs one timestamp extrinsic.
-	let time_ext = extrinsic_set_time(0);
+	let time_ext = extrinsic_set_time(1500);
 	extrinsics.push(time_ext);
 
 	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
@@ -298,7 +300,24 @@ fn prepare_benchmark(
 	(max_transfer_count, extrinsics)
 }
 
-fn block_production(c: &mut Criterion) {
+async fn import_block(
+	mut client: &FullClient,
+	built: BuiltBlock<
+		node_primitives::Block,
+		<FullClient as sp_api::CallApiAt<node_primitives::Block>>::StateBackend,
+	>,
+) {
+	let mut params = BlockImportParams::new(BlockOrigin::File, built.block.header);
+
+	params.body = Some(built.block.extrinsics);
+	params.state_action = StateAction::Execute;
+	params.fork_choice = Some(ForkChoiceStrategy::LongestChain);
+	params.import_existing = true;
+	let import_result = client.import_block(params).await;
+	assert_eq!(true, matches!(import_result, Ok(ImportResult::Imported(_))));
+}
+
+fn block_import_benchmark(c: &mut Criterion) {
 	sp_tracing::try_init_simple();
 
 	let runtime = tokio::runtime::Runtime::new().expect("creating tokio runtime doesn't fail; qed");
@@ -319,6 +338,12 @@ fn block_production(c: &mut Criterion) {
 	let node = new_node(tokio_handle.clone(), endowed_public_keys);
 	let client = &*node.client;
 
+	// Buliding the very first block is around ~30x slower than any subsequent one,
+	// so let's make sure it's built and imported before we benchmark anything.
+	let mut block_builder = client.new_block(Default::default()).unwrap();
+	block_builder.push(extrinsic_set_time(0)).unwrap();
+	runtime.block_on(import_block(client, block_builder.build().unwrap()));
+
 	let (src_accounts, dst_accounts) = accounts.split_at(10000);
 	let (max_transfer_count, extrinsics) = prepare_benchmark(&client, src_accounts, dst_accounts);
 
@@ -332,36 +357,23 @@ fn block_production(c: &mut Criterion) {
 
 	let best_hash = client.chain_info().best_hash;
 
-	group.bench_function(format!("{} transfers (no proof)", max_transfer_count), |b| {
-		b.iter_batched(
-			|| extrinsics.clone(),
-			|extrinsics| {
+	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
+		b.to_async(&runtime).iter_batched(
+			|| {
 				let mut block_builder =
 					client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
-				for extrinsic in extrinsics {
+				for extrinsic in extrinsics.clone() {
 					block_builder.push(extrinsic).unwrap();
 				}
 				block_builder.build().unwrap()
 			},
-			BatchSize::SmallInput,
-		)
-	});
-
-	group.bench_function(format!("{} transfers (with proof)", max_transfer_count), |b| {
-		b.iter_batched(
-			|| extrinsics.clone(),
-			|extrinsics| {
-				let mut block_builder =
-					client.new_block_at(best_hash, Default::default(), RecordProof::Yes).unwrap();
-				for extrinsic in extrinsics {
-					block_builder.push(extrinsic).unwrap();
-				}
-				block_builder.build().unwrap()
+			|bb| async {
+				import_block(client, bb).await;
 			},
 			BatchSize::SmallInput,
 		)
 	});
 }
 
-criterion_group!(benches, block_production);
+criterion_group!(benches, block_import_benchmark);
 criterion_main!(benches);
