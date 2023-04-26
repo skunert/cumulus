@@ -80,6 +80,28 @@ where
 }
 
 /// Get the chain spec for a specific parachain ID.
+pub fn get_chain_spec_with_endowed(id: ParaId, endowed_accounts: Vec<AccountId>) -> ChainSpec {
+	ChainSpec::from_genesis(
+		"Local Testnet",
+		"local_testnet",
+		ChainType::Local,
+		move || GenesisExt {
+			runtime_genesis_config: testnet_genesis(
+				get_account_id_from_seed::<sr25519::Public>("Alice"),
+				endowed_accounts.clone(),
+			),
+			para_id: id,
+		},
+		Vec::new(),
+		None,
+		None,
+		None,
+		None,
+		Extensions { para_id: id.into() },
+	)
+}
+
+/// Get the chain spec for a specific parachain ID.
 pub fn get_chain_spec(id: ParaId) -> ChainSpec {
 	ChainSpec::from_genesis(
 		"Local Testnet",

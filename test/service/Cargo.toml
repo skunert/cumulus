@@ -76,6 +76,7 @@ cumulus-client-pov-recovery = { path = "../../client/pov-recovery" }
 futures = "0.3.28"
 portpicker = "0.1.1"
 kitchensink-runtime = { git = "https://github.com/paritytech/substrate", branch = "master" }
+rococo-parachain-runtime = { path = "../../parachains/runtimes/testing/rococo-parachain" }
 node-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
 pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "master" }
 pallet-im-online = { git = "https://github.com/paritytech/substrate", branch = "master" }
@@ -85,6 +86,7 @@ sp-consensus = { git = "https://github.com/paritytech/substrate", branch = "mast
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-consensus-grandpa = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-authority-discovery = { git = "https://github.com/paritytech/substrate", branch = "master" }
+cumulus-pallet-parachain-system = { path = "../../pallets/parachain-system", default-features = false }
 
 # Polkadot dependencies
 polkadot-test-service = { git = "https://github.com/paritytech/polkadot", branch = "master" }
@@ -110,4 +112,8 @@ harness = false
 
 [[bench]]
 name = "block_import_stps"
+harness = false
+
+[[bench]]
+name = "validate_block"
 harness = false
