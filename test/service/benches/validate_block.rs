@@ -16,10 +16,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use codec::Encode;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use cumulus_primitives_parachain_inherent::ParachainInherentData;
+use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
 use cumulus_test_runtime::{BalancesCall, Block, NodeBlock, UncheckedExtrinsic};
 use cumulus_test_service::{construct_extrinsic, Client as TestClient};
+use polkadot_primitives::HeadData;
+use sc_client_api::UsageProvider;
 
 use core::time::Duration;
 use cumulus_primitives_core::{relay_chain::AccountId, ParaId, PersistedValidationData};
@@ -46,15 +50,19 @@ fn extrinsic_set_time(now: u64) -> OpaqueExtrinsic {
 	.into()
 }
 
-fn extrinsic_set_validation_data(now: u64) -> OpaqueExtrinsic {
+fn extrinsic_set_validation_data(parent_header: cumulus_test_runtime::Header) -> OpaqueExtrinsic {
+	let mut sproof_builder = RelayStateSproofBuilder::default();
+	sproof_builder.para_id = 100.into();
+	let parent_head = HeadData(parent_header.encode());
+	let (relay_parent_storage_root, relay_chain_state) = sproof_builder.into_state_root_and_proof();
 	let data = ParachainInherentData {
 		validation_data: PersistedValidationData {
-			parent_head: todo!(),
+			parent_head,
 			relay_parent_number: 10,
-			relay_parent_storage_root: todo!(),
-			max_pov_size: todo!(),
+			relay_parent_storage_root,
+			max_pov_size: 10000,
 		},
-		relay_chain_state: sp_trie::StorageProof::empty(),
+		relay_chain_state,
 		downward_messages: Default::default(),
 		horizontal_messages: Default::default(),
 	};
@@ -113,12 +121,13 @@ async fn import_block(
 		NodeBlock,
 		<TestClient as sp_api::CallApiAt<node_primitives::Block>>::StateBackend,
 	>,
+	import_existing: bool,
 ) {
 	let mut params = BlockImportParams::new(BlockOrigin::File, built.block.header.clone());
 	params.body = Some(built.block.extrinsics.clone());
 	params.state_action = StateAction::Execute;
 	params.fork_choice = Some(ForkChoiceStrategy::LongestChain);
-	params.import_existing = true;
+	params.import_existing = import_existing;
 	let import_result = client.import_block(params).await;
 	assert_eq!(true, matches!(import_result, Ok(ImportResult::Imported(_))));
 }
@@ -154,8 +163,12 @@ fn validate_block(c: &mut Criterion) {
 	// so let's make sure it's built and imported before we benchmark anything.
 	let mut block_builder = client.new_block(Default::default()).unwrap();
 	block_builder.push(extrinsic_set_time(0)).unwrap();
+	let parent_hash = dbg!(client.usage_info().chain.best_hash);
+	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
 	println!("11");
-	runtime.block_on(import_block(&client, block_builder.build().unwrap()));
+	block_builder.push(extrinsic_set_validation_data(parent_header)).unwrap();
+	println!("12");
+	runtime.block_on(import_block(&client, block_builder.build().unwrap(), false));
 
 	println!("2");
 	let (src_accounts, dst_accounts) = accounts.split_at(10000);
@@ -175,15 +188,20 @@ fn validate_block(c: &mut Criterion) {
 	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
 		b.to_async(&runtime).iter_batched(
 			|| {
+				let parent_hash = dbg!(client.usage_info().chain.best_hash);
+				let parent_header =
+					client.header(parent_hash).expect("Just fetched this hash.").unwrap();
+				let set_validate_extrinsic = extrinsic_set_validation_data(parent_header.clone());
 				let mut block_builder =
 					client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
+				block_builder.push(set_validate_extrinsic.clone()).unwrap();
 				for extrinsic in extrinsics.clone() {
 					block_builder.push(extrinsic).unwrap();
 				}
 				block_builder.build().unwrap()
 			},
 			|bb| async {
-				import_block(&*client, bb).await;
+				import_block(&*client, bb, false).await;
 			},
 			BatchSize::SmallInput,
 		)

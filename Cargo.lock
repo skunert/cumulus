@@ -2499,6 +2499,7 @@ dependencies = [
  "cumulus-relay-chain-inprocess-interface",
  "cumulus-relay-chain-interface",
  "cumulus-relay-chain-minimal-node",
+ "cumulus-test-relay-sproof-builder",
  "cumulus-test-relay-validation-worker-provider",
  "cumulus-test-runtime",
  "frame-system",
