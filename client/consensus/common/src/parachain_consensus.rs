@@ -22,7 +22,10 @@ use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy};
 use schnellru::{ByLength, LruMap};
 use sp_blockchain::Error as ClientError;
 use sp_consensus::{BlockOrigin, BlockStatus};
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use sp_runtime::{
+	traits::{Block as BlockT, Header as HeaderT},
+	Saturating,
+};
 
 use cumulus_client_pov_recovery::{RecoveryKind, RecoveryRequest};
 use cumulus_relay_chain_interface::{RelayChainInterface, RelayChainResult};
@@ -58,44 +61,70 @@ fn handle_new_finalized_head<P, Block, B>(
 		},
 	};
 
-	let hash = header.hash();
-	let number = header.number();
+	let to_be_finalized_hash = header.hash();
+	let to_be_finalized_number = header.number();
 
-	last_seen_finalized_hashes.insert(hash, ());
+	last_seen_finalized_hashes.insert(to_be_finalized_hash, ());
 
+	let finalized_number = parachain.usage_info().chain.finalized_number;
 	// Only finalize if we are below the incoming finalized parachain head
-	if parachain.usage_info().chain.finalized_number < *number {
+	if finalized_number < *to_be_finalized_number {
 		tracing::debug!(
 			target: LOG_TARGET,
-			block_hash = ?hash,
+			block_hash = ?to_be_finalized_hash,
 			"Attempting to finalize header.",
 		);
-		if matches!(parachain.status(hash), Ok(sp_blockchain::BlockStatus::Unknown)) {
+		if matches!(parachain.status(to_be_finalized_hash), Ok(sp_blockchain::BlockStatus::Unknown))
+		{
 			tracing::debug!(
 				target: LOG_TARGET,
-				block_hash = ?hash,
+				block_hash = ?to_be_finalized_hash,
 				"Skipping finalization attempt because block is unknown.",
 			);
 			return
 		}
-		if let Err(e) = parachain.finalize_block(hash, None, true) {
+		// If more than 1000 blocks need to be finalized
+		if finalized_number.saturating_add(1000u32.into()) < *to_be_finalized_number {
+			let finalized_parent = header.parent_hash();
+			tracing::info!(
+				target: LOG_TARGET,
+				?finalized_parent,
+				"skunert: Trying to finalize more than thousant blocks, skipping notification for parent."
+			);
+			if let Err(e) = parachain.finalize_block(*finalized_parent, None, false) {
+				match e {
+					ClientError::UnknownBlock(_) => tracing::debug!(
+						target: LOG_TARGET,
+						?finalized_parent,
+						"Could not finalize block because it is unknown.",
+					),
+					_ => tracing::warn!(
+						target: LOG_TARGET,
+						error = ?e,
+						?finalized_parent,
+						"Failed to finalize block",
+					),
+				}
+			}
+		}
+		if let Err(e) = parachain.finalize_block(to_be_finalized_hash, None, true) {
 			match e {
 				ClientError::UnknownBlock(_) => tracing::debug!(
 					target: LOG_TARGET,
-					block_hash = ?hash,
+					block_hash = ?to_be_finalized_hash,
 					"Could not finalize block because it is unknown.",
 				),
 				_ => tracing::warn!(
 					target: LOG_TARGET,
 					error = ?e,
-					block_hash = ?hash,
+					block_hash = ?to_be_finalized_hash,
 					"Failed to finalize block",
 				),
 			}
 		}
 		tracing::debug!(
 			target: LOG_TARGET,
-			block_hash = ?hash,
+			block_hash = ?to_be_finalized_hash,
 			"Successfully finalized.",
 		);
 	}
