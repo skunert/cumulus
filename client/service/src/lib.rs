@@ -200,6 +200,7 @@ where
 		+ Send
 		+ Sync
 		+ BlockBackend<Block>
+		+ HeaderBackend<Block>
 		+ BlockchainEvents<Block>
 		+ 'static,
 	for<'a> &'a Client: BlockImport<Block>,

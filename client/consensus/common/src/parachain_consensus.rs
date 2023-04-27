@@ -15,7 +15,8 @@
 // along with Cumulus.  If not, see <http://www.gnu.org/licenses/>.
 
 use sc_client_api::{
-	Backend, BlockBackend, BlockImportNotification, BlockchainEvents, Finalizer, UsageProvider,
+	Backend, BlockBackend, BlockImportNotification, BlockchainEvents, Finalizer, HeaderBackend,
+	UsageProvider,
 };
 use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy};
 use schnellru::{ByLength, LruMap};
@@ -43,7 +44,7 @@ fn handle_new_finalized_head<P, Block, B>(
 ) where
 	Block: BlockT,
 	B: Backend<Block>,
-	P: Finalizer<Block, B> + UsageProvider<Block> + BlockchainEvents<Block>,
+	P: Finalizer<Block, B> + UsageProvider<Block> + HeaderBackend<Block> + BlockchainEvents<Block>,
 {
 	let header = match Block::Header::decode(&mut &finalized_head[..]) {
 		Ok(header) => header,
@@ -58,16 +59,25 @@ fn handle_new_finalized_head<P, Block, B>(
 	};
 
 	let hash = header.hash();
+	let number = header.number();
 
 	last_seen_finalized_hashes.insert(hash, ());
 
 	// Only finalize if we are below the incoming finalized parachain head
-	if parachain.usage_info().chain.finalized_number < *header.number() {
+	if parachain.usage_info().chain.finalized_number < *number {
 		tracing::debug!(
 			target: LOG_TARGET,
 			block_hash = ?hash,
 			"Attempting to finalize header.",
 		);
+		if matches!(parachain.status(hash), Ok(sp_blockchain::BlockStatus::Unknown)) {
+			tracing::debug!(
+				target: LOG_TARGET,
+				block_hash = ?hash,
+				"Skipping finalization attempt because block is unknown.",
+			);
+			return
+		}
 		if let Err(e) = parachain.finalize_block(hash, None, true) {
 			match e {
 				ClientError::UnknownBlock(_) => tracing::debug!(
@@ -93,7 +103,7 @@ fn handle_new_finalized_head<P, Block, B>(
 async fn follow_finalized_head<P, Block, B, R>(para_id: ParaId, parachain: Arc<P>, relay_chain: R)
 where
 	Block: BlockT,
-	P: Finalizer<Block, B> + UsageProvider<Block> + BlockchainEvents<Block>,
+	P: Finalizer<Block, B> + UsageProvider<Block> + HeaderBackend<Block> + BlockchainEvents<Block>,
 	R: RelayChainInterface + Clone,
 	B: Backend<Block>,
 {
@@ -190,6 +200,7 @@ pub async fn run_parachain_consensus<P, R, Block, B>(
 		+ UsageProvider<Block>
 		+ Send
 		+ Sync
+		+ HeaderBackend<Block>
 		+ BlockBackend<Block>
 		+ BlockchainEvents<Block>,
 	for<'a> &'a P: BlockImport<Block>,
