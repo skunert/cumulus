@@ -93,6 +93,11 @@ fn handle_new_finalized_head<P, Block, B>(
 				),
 			}
 		}
+		tracing::debug!(
+			target: LOG_TARGET,
+			block_hash = ?hash,
+			"Successfully finalized.",
+		);
 	}
 }
 

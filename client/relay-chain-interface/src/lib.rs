@@ -44,10 +44,10 @@ pub enum RelayChainError {
 	ApiError(#[from] ApiError),
 	#[error("Timeout while waiting for relay-chain block `{0}` to be imported.")]
 	WaitTimeout(PHash),
-	#[error("Import listener closed while waiting for relay-chain block `{0}` to be imported.")]
+	#[error("Import listener closed while waiting for relay-chain block `{0:?}` to be imported.")]
 	ImportListenerClosed(PHash),
 	#[error(
-		"Blockchain returned an error while waiting for relay-chain block `{0}` to be imported: {1}"
+		"Blockchain returned an error while waiting for relay-chain block `{0:?}` to be imported: {1}"
 	)]
 	WaitBlockchainError(PHash, sp_blockchain::Error),
 	#[error("Blockchain returned an error: {0}")]
