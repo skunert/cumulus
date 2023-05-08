@@ -639,7 +639,7 @@ impl TestNodeBuilder {
 		let parachain_config = node_config(
 			self.storage_update_func_parachain.unwrap_or_else(|| Box::new(|| ())),
 			self.tokio_handle.clone(),
-			self.key.clone(),
+			self.key,
 			self.parachain_nodes,
 			self.parachain_nodes_exclusive,
 			self.para_id,
@@ -677,7 +677,7 @@ impl TestNodeBuilder {
 		.await
 		.expect("could not create Cumulus test service");
 
-		let peer_id = network.local_peer_id().clone();
+		let peer_id = network.local_peer_id();
 		let addr = MultiaddrWithPeerId { multiaddr, peer_id };
 
 		TestNode { task_manager, client, network, addr, rpc_handlers, transaction_pool }
@@ -701,7 +701,7 @@ pub fn node_config(
 	endowed_accounts: Vec<AccountId>,
 ) -> Result<Configuration, ServiceError> {
 	let base_path = BasePath::new_temp_dir()?;
-	let root = base_path.path().join(format!("cumulus_test_service_{}", key.to_string()));
+	let root = base_path.path().join(format!("cumulus_test_service_{}", key));
 	let role = if is_collator { Role::Authority } else { Role::Full };
 	let key_seed = key.to_seed();
 	let mut spec = if endowed_accounts.is_empty() {
@@ -768,6 +768,7 @@ pub fn node_config(
 		rpc_max_response_size: Default::default(),
 		rpc_id_provider: None,
 		rpc_max_subs_per_conn: Default::default(),
+		rpc_port: 9945,
 		prometheus_config: None,
 		telemetry_endpoints: None,
 		default_heap_pages: None,
@@ -801,7 +802,7 @@ impl TestNode {
 		function: impl Into<runtime::RuntimeCall>,
 		caller: Sr25519Keyring,
 	) -> Result<RpcTransactionOutput, RpcTransactionError> {
-		let extrinsic = construct_extrinsic(&*self.client, function, caller.pair(), Some(0));
+		let extrinsic = construct_extrinsic(&self.client, function, caller.pair(), Some(0));
 
 		self.rpc_handlers.send_transaction(extrinsic.into()).await
 	}
