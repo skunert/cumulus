@@ -104,15 +104,11 @@ name = "transaction_throughput"
 harness = false
 
 [[bench]]
-name = "block_production_alice_bob"
+name = "block_import"
 harness = false
 
 [[bench]]
-name = "block_production_stps"
-harness = false
-
-[[bench]]
-name = "block_import_stps"
+name = "block_production"
 harness = false
 
 [[bench]]

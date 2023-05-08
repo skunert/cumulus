@@ -179,23 +179,23 @@ fn validate_block(c: &mut Criterion) {
 
 	let best_hash = client.chain_info().best_hash;
 
-	let parent_hash = dbg!(client.usage_info().chain.best_hash);
-	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
-	let set_validate_extrinsic = extrinsic_set_validation_data(parent_header.clone());
-	let mut block_builder =
-		client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
-	block_builder.push(set_validate_extrinsic.clone()).unwrap();
-	for extrinsic in extrinsics.clone() {
-		block_builder.push(extrinsic).unwrap();
-	}
-	let built_block = block_builder.build().unwrap();
-	runtime.block_on(import_block(&*client, built_block, false));
-
 	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
 		b.to_async(&runtime).iter_batched(
-			|| {},
+			|| {
+				let parent_hash = dbg!(client.usage_info().chain.best_hash);
+				let parent_header =
+					client.header(parent_hash).expect("Just fetched this hash.").unwrap();
+				let set_validate_extrinsic = extrinsic_set_validation_data(parent_header.clone());
+				let mut block_builder =
+					client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
+				block_builder.push(set_validate_extrinsic.clone()).unwrap();
+				for extrinsic in extrinsics.clone() {
+					block_builder.push(extrinsic).unwrap();
+				}
+				block_builder.build().unwrap()
+			},
 			|bb| async {
-				println!("what");
+				import_block(&*client, bb, true).await;
 			},
 			BatchSize::SmallInput,
 		)

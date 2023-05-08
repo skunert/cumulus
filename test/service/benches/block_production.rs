@@ -163,11 +163,14 @@ fn validate_block(c: &mut Criterion) {
 	block_builder.push(extrinsic_set_time(0)).unwrap();
 	let parent_hash = dbg!(client.usage_info().chain.best_hash);
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
-	block_builder.push(extrinsic_set_validation_data(parent_header)).unwrap();
+	let set_validation_data_extrinsic = extrinsic_set_validation_data(parent_header);
+	block_builder.push(set_validation_data_extrinsic.clone()).unwrap();
 	runtime.block_on(import_block(&client, block_builder.build().unwrap(), false));
 
 	let (src_accounts, dst_accounts) = accounts.split_at(10000);
-	let (max_transfer_count, extrinsics) = prepare_benchmark(&client, src_accounts, dst_accounts);
+	let (max_transfer_count, mut extrinsics) =
+		prepare_benchmark(&client, src_accounts, dst_accounts);
+	extrinsics.push(set_validation_data_extrinsic);
 
 	tracing::info!("Maximum transfer count: {}", max_transfer_count);
 
@@ -179,23 +182,31 @@ fn validate_block(c: &mut Criterion) {
 
 	let best_hash = client.chain_info().best_hash;
 
-	let parent_hash = dbg!(client.usage_info().chain.best_hash);
-	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
-	let set_validate_extrinsic = extrinsic_set_validation_data(parent_header.clone());
-	let mut block_builder =
-		client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
-	block_builder.push(set_validate_extrinsic.clone()).unwrap();
-	for extrinsic in extrinsics.clone() {
-		block_builder.push(extrinsic).unwrap();
-	}
-	let built_block = block_builder.build().unwrap();
-	runtime.block_on(import_block(&*client, built_block, false));
+	group.bench_function(format!("{} transfers (no proof)", max_transfer_count), |b| {
+		b.iter_batched(
+			|| extrinsics.clone(),
+			|extrinsics| {
+				let mut block_builder =
+					client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
+				for extrinsic in extrinsics {
+					block_builder.push(extrinsic).unwrap();
+				}
+				block_builder.build().unwrap()
+			},
+			BatchSize::SmallInput,
+		)
+	});
 
-	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
-		b.to_async(&runtime).iter_batched(
-			|| {},
-			|bb| async {
-				println!("what");
+	group.bench_function(format!("{} transfers (with proof)", max_transfer_count), |b| {
+		b.iter_batched(
+			|| extrinsics.clone(),
+			|extrinsics| {
+				let mut block_builder =
+					client.new_block_at(best_hash, Default::default(), RecordProof::Yes).unwrap();
+				for extrinsic in extrinsics {
+					block_builder.push(extrinsic).unwrap();
+				}
+				block_builder.build().unwrap()
 			},
 			BatchSize::SmallInput,
 		)
