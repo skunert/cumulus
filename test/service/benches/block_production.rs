@@ -132,7 +132,7 @@ async fn import_block(
 	assert_eq!(true, matches!(import_result, Ok(ImportResult::Imported(_))));
 }
 
-fn validate_block(c: &mut Criterion) {
+fn benchmark_block_production(c: &mut Criterion) {
 	sp_tracing::try_init_simple();
 
 	let runtime = tokio::runtime::Runtime::new().expect("creating tokio runtime doesn't fail; qed");
@@ -213,5 +213,5 @@ fn validate_block(c: &mut Criterion) {
 	});
 }
 
-criterion_group!(benches, validate_block);
+criterion_group!(benches, benchmark_block_production);
 criterion_main!(benches);
