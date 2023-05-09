@@ -20,7 +20,7 @@ use codec::Encode;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use cumulus_primitives_parachain_inherent::ParachainInherentData;
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{BalancesCall, Block, NodeBlock, UncheckedExtrinsic};
+use cumulus_test_runtime::{BalancesCall, NodeBlock, UncheckedExtrinsic};
 use cumulus_test_service::{construct_extrinsic, Client as TestClient};
 use polkadot_primitives::HeadData;
 use sc_client_api::UsageProvider;
@@ -37,7 +37,6 @@ use sp_consensus::BlockOrigin;
 use sp_core::{sr25519, Pair};
 use sp_keyring::Sr25519Keyring::Alice;
 use sp_runtime::{
-	traits::Block as BlockT,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 	OpaqueExtrinsic,
 };
@@ -179,7 +178,7 @@ fn benchmark_block_import(c: &mut Criterion) {
 
 	let best_hash = client.chain_info().best_hash;
 
-	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
+	group.bench_function(format!("block import with {} transfers", max_transfer_count), |b| {
 		b.to_async(&runtime).iter_batched(
 			|| {
 				let parent_hash = client.usage_info().chain.best_hash;

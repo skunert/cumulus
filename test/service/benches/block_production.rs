@@ -20,7 +20,7 @@ use codec::Encode;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use cumulus_primitives_parachain_inherent::ParachainInherentData;
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{BalancesCall, Block, NodeBlock, UncheckedExtrinsic};
+use cumulus_test_runtime::{BalancesCall, NodeBlock, UncheckedExtrinsic};
 use cumulus_test_service::{construct_extrinsic, Client as TestClient};
 use polkadot_primitives::HeadData;
 use sc_client_api::UsageProvider;
@@ -37,7 +37,6 @@ use sp_consensus::BlockOrigin;
 use sp_core::{sr25519, Pair};
 use sp_keyring::Sr25519Keyring::Alice;
 use sp_runtime::{
-	traits::Block as BlockT,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 	OpaqueExtrinsic,
 };
@@ -182,22 +181,7 @@ fn benchmark_block_production(c: &mut Criterion) {
 
 	let best_hash = client.chain_info().best_hash;
 
-	group.bench_function(format!("{} transfers (no proof)", max_transfer_count), |b| {
-		b.iter_batched(
-			|| extrinsics.clone(),
-			|extrinsics| {
-				let mut block_builder =
-					client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
-				for extrinsic in extrinsics {
-					block_builder.push(extrinsic).unwrap();
-				}
-				block_builder.build().unwrap()
-			},
-			BatchSize::SmallInput,
-		)
-	});
-
-	group.bench_function(format!("{} transfers (with proof)", max_transfer_count), |b| {
+	group.bench_function(format!("block production with {} transfers", max_transfer_count), |b| {
 		b.iter_batched(
 			|| extrinsics.clone(),
 			|extrinsics| {

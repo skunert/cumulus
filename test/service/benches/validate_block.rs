@@ -16,14 +16,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use codec::{Encode, Decode};
+use codec::Encode;
 use core::time::Duration;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
-use cumulus_primitives_core::{
-	relay_chain::AccountId, ParaId, PersistedValidationData, ValidationParams,
-};
+use cumulus_primitives_core::{relay_chain::AccountId, PersistedValidationData, ValidationParams};
 use cumulus_test_client::{
-	generate_extrinsic_with_pair, BuildParachainBlockData, InitBlockBuilder, TestClientBuilder, ValidationResult,
+	generate_extrinsic_with_pair, BuildParachainBlockData, InitBlockBuilder, TestClientBuilder,
 };
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
 use cumulus_test_runtime::{BalancesCall, UncheckedExtrinsic, WASM_BINARY};
@@ -78,7 +76,7 @@ fn prepare_benchmark(
 	(max_transfer_count, extrinsics)
 }
 
-fn validate_block(c: &mut Criterion) {
+fn benchmark_block_validation(c: &mut Criterion) {
 	sp_tracing::try_init_simple();
 	let accounts: Vec<sr25519::Pair> = (0..20000)
 		.into_iter()
@@ -119,7 +117,9 @@ fn validate_block(c: &mut Criterion) {
 
 	let mut block_builder =
 		client.init_block_builder(Some(validation_data.clone()), Default::default());
-	let _ = extrinsics.into_iter().map(|extrinsic| block_builder.push(extrinsic));
+	for extrinsic in extrinsics.clone() {
+		block_builder.push(extrinsic).unwrap();
+	}
 
 	let parachain_block = block_builder.build_parachain_block(*parent_header.state_root());
 
@@ -133,24 +133,11 @@ fn validate_block(c: &mut Criterion) {
 	}
 	.encode();
 
-	let expected = parachain_block.header().clone();
-	let res_header = {
-		let encoded_result = runtime
-		.new_instance()
-		.unwrap()
-		.call_export("validate_block", &encoded_params)
-		.expect("call succeeds");
-		let result = ValidationResult::decode(&mut &encoded_result[..]).expect("Decoding succeeds");
-
-	}
-
-	assert_eq!(expected, res_header);
-
 	group.sample_size(20);
 	group.measurement_time(Duration::from_secs(45));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
-	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
+	group.bench_function(format!("block validation with {} transfer", max_transfer_count), |b| {
 		b.iter_batched(
 			|| runtime.new_instance().unwrap(),
 			|mut instance| {
@@ -200,5 +187,5 @@ fn initialize_wasm() -> Box<dyn sc_executor_common::wasm_runtime::WasmModule> {
 	}
 }
 
-criterion_group!(benches, validate_block);
+criterion_group!(benches, benchmark_block_validation);
 criterion_main!(benches);
