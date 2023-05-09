@@ -16,74 +16,32 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use codec::{Decode, Encode};
+use codec::{Encode, Decode};
 use core::time::Duration;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use cumulus_primitives_core::{
-	relay_chain::AccountId, ParaId, ParachainBlockData, PersistedValidationData, ValidationParams,
+	relay_chain::AccountId, ParaId, PersistedValidationData, ValidationParams,
 };
-use cumulus_primitives_parachain_inherent::ParachainInherentData;
 use cumulus_test_client::{
-	generate_extrinsic_with_pair, BuildParachainBlockData, ExecutorResult, InitBlockBuilder,
-	TestClientBuilder, ValidationResult,
+	generate_extrinsic_with_pair, BuildParachainBlockData, InitBlockBuilder, TestClientBuilder, ValidationResult,
 };
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{
-	BalancesCall, Block, Header, NodeBlock, UncheckedExtrinsic, WASM_BINARY,
-};
+use cumulus_test_runtime::{BalancesCall, UncheckedExtrinsic, WASM_BINARY};
 use polkadot_primitives::HeadData;
-use sc_block_builder::{BlockBuilderProvider, BuiltBlock, RecordProof};
+use sc_block_builder::BlockBuilderProvider;
 use sc_client_api::UsageProvider;
-use sc_consensus::{
-	block_import::{BlockImportParams, ForkChoiceStrategy},
-	BlockImport, ImportResult, StateAction,
-};
-use sc_executor::{HeapAllocStrategy, WasmExecutionMethod, WasmExecutor};
+
+use sc_executor::DEFAULT_HEAP_ALLOC_STRATEGY;
 use sc_executor_common::runtime_blob::RuntimeBlob;
 use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed};
-use sp_consensus::BlockOrigin;
+
 use sp_core::{sr25519, Pair};
-use sp_io::TestExternalities;
+
 use sp_keyring::Sr25519Keyring::Alice;
 use sp_runtime::{
-	traits::{Block as BlockT, Header as HeaderT},
+	traits::Header as HeaderT,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
-	AccountId32, BuildStorage, OpaqueExtrinsic, Storage,
 };
-
-fn extrinsic_set_time(now: u64) -> UncheckedExtrinsic {
-	cumulus_test_runtime::UncheckedExtrinsic {
-		signature: None,
-		function: cumulus_test_runtime::RuntimeCall::Timestamp(pallet_timestamp::Call::set { now }),
-	}
-}
-
-fn extrinsic_set_validation_data(
-	parent_header: cumulus_test_runtime::Header,
-) -> UncheckedExtrinsic {
-	let mut sproof_builder = RelayStateSproofBuilder::default();
-	sproof_builder.para_id = 100.into();
-	let parent_head = HeadData(parent_header.encode());
-	let (relay_parent_storage_root, relay_chain_state) = sproof_builder.into_state_root_and_proof();
-	let data = ParachainInherentData {
-		validation_data: PersistedValidationData {
-			parent_head,
-			relay_parent_number: 10,
-			relay_parent_storage_root,
-			max_pov_size: 10000,
-		},
-		relay_chain_state,
-		downward_messages: Default::default(),
-		horizontal_messages: Default::default(),
-	};
-
-	cumulus_test_runtime::UncheckedExtrinsic {
-		signature: None,
-		function: cumulus_test_runtime::RuntimeCall::ParachainSystem(
-			cumulus_pallet_parachain_system::Call::set_validation_data { data },
-		),
-	}
-}
 
 fn prepare_benchmark(
 	client: &cumulus_test_client::Client,
@@ -122,10 +80,6 @@ fn prepare_benchmark(
 
 fn validate_block(c: &mut Criterion) {
 	sp_tracing::try_init_simple();
-
-	let runtime = tokio::runtime::Runtime::new().expect("creating tokio runtime doesn't fail; qed");
-	let para_id = ParaId::from(100);
-	let tokio_handle = runtime.handle();
 	let accounts: Vec<sr25519::Pair> = (0..20000)
 		.into_iter()
 		.map(|idx| {
@@ -140,7 +94,7 @@ fn validate_block(c: &mut Criterion) {
 
 	let mut test_client_builder = TestClientBuilder::with_default_backend()
 		.set_execution_strategy(sc_client_api::ExecutionStrategy::AlwaysWasm);
-	let mut genesis_init = test_client_builder.genesis_init_mut();
+	let genesis_init = test_client_builder.genesis_init_mut();
 	*genesis_init = cumulus_test_client::GenesisParameters { endowed_accounts };
 	let client = test_client_builder.build_with_native_executor(None).0;
 
@@ -151,16 +105,13 @@ fn validate_block(c: &mut Criterion) {
 
 	let mut group = c.benchmark_group("Block production");
 
-	group.sample_size(20);
-	group.measurement_time(Duration::from_secs(45));
-	group.throughput(Throughput::Elements(max_transfer_count as u64));
-
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
 
 	let sproof_builder: RelayStateSproofBuilder = Default::default();
+
 	let (relay_parent_storage_root, _) = sproof_builder.clone().into_state_root_and_proof();
-	let mut validation_data = PersistedValidationData {
+	let validation_data = PersistedValidationData {
 		relay_parent_number: 1,
 		parent_head: parent_header.encode().into(),
 		..Default::default()
@@ -168,75 +119,86 @@ fn validate_block(c: &mut Criterion) {
 
 	let mut block_builder =
 		client.init_block_builder(Some(validation_data.clone()), Default::default());
-	validation_data.relay_parent_storage_root = relay_parent_storage_root;
-	for extrinsic in extrinsics.clone() {
-		block_builder.push(extrinsic).unwrap();
-	}
+	let _ = extrinsics.into_iter().map(|extrinsic| block_builder.push(extrinsic));
+
 	let parachain_block = block_builder.build_parachain_block(*parent_header.state_root());
 
-	let heap_pages = HeapAllocStrategy::Static { extra_pages: 1024 };
-	let executor = WasmExecutor::<sp_io::SubstrateHostFunctions>::builder()
-		.with_execution_method(WasmExecutionMethod::Compiled {
-			instantiation_strategy: sc_executor::WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
-		})
-		.with_max_runtime_instances(1)
-		.with_runtime_cache_size(2)
-		.with_onchain_heap_alloc_strategy(heap_pages)
-		.with_offchain_heap_alloc_strategy(heap_pages)
-		.build();
+	let runtime = initialize_wasm();
 
-	// let expected = parachain_block.header().clone();
-	// let res_header =
-	// 	call_validate_block(parent_header, parachain_block, relay_parent_storage_root.clone).expect("jo");
-	// assert_eq!(expected, res_header);
+	let encoded_params = ValidationParams {
+		block_data: cumulus_test_client::BlockData(parachain_block.clone().encode()),
+		parent_head: HeadData(parent_header.encode()),
+		relay_parent_number: 1,
+		relay_parent_storage_root: relay_parent_storage_root.clone(),
+	}
+	.encode();
+
+	let expected = parachain_block.header().clone();
+	let res_header = {
+		let encoded_result = runtime
+		.new_instance()
+		.unwrap()
+		.call_export("validate_block", &encoded_params)
+		.expect("call succeeds");
+		let result = ValidationResult::decode(&mut &encoded_result[..]).expect("Decoding succeeds");
+
+	}
+
+	assert_eq!(expected, res_header);
+
+	group.sample_size(20);
+	group.measurement_time(Duration::from_secs(45));
+	group.throughput(Throughput::Elements(max_transfer_count as u64));
+
 	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
 		b.iter_batched(
-			|| (parent_header.clone(), parachain_block.clone(), relay_parent_storage_root.clone()),
-			|(parent_header, block, storage_root)| {
-				call_validate_block(&executor, parent_header, block, storage_root).expect("jo");
+			|| runtime.new_instance().unwrap(),
+			|mut instance| {
+				instance.call_export("validate_block", &encoded_params).unwrap();
 			},
 			BatchSize::SmallInput,
 		)
 	});
 }
 
-fn call_validate_block(
-	executor: &WasmExecutor<sp_io::SubstrateHostFunctions>,
-	parent_head: cumulus_test_runtime::Header,
-	parachain_block: ParachainBlockData<Block>,
-	relay_parent_storage_root: cumulus_test_runtime::Hash,
-) -> cumulus_test_client::ExecutorResult<cumulus_test_runtime::Header> {
-	let head_data_encoded = validate_block_with_executor(
-		executor,
-		ValidationParams {
-			block_data: cumulus_test_client::BlockData(parachain_block.encode()),
-			parent_head: HeadData(parent_head.encode()),
-			relay_parent_number: 1,
-			relay_parent_storage_root,
-		},
-		WASM_BINARY.expect("You need to build the WASM binaries to run the tests!"),
+fn initialize_wasm() -> Box<dyn sc_executor_common::wasm_runtime::WasmModule> {
+	let blob = RuntimeBlob::uncompress_if_needed(
+		WASM_BINARY.expect("You need to build the WASM binaries to run the benchmark!"),
 	)
-	.map(|v| v.head_data.0);
-	head_data_encoded.map(|v| Header::decode(&mut &v[..]).expect("Decodes `Header`."))
+	.unwrap();
+
+	let allow_missing_func_imports = true;
+
+	let config = sc_executor_wasmtime::Config {
+		allow_missing_func_imports,
+		cache_path: None,
+		semantics: sc_executor_wasmtime::Semantics {
+			heap_alloc_strategy: DEFAULT_HEAP_ALLOC_STRATEGY,
+			instantiation_strategy: sc_executor::WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
+			deterministic_stack_limit: None,
+			canonicalize_nans: false,
+			parallel_compilation: true,
+			wasm_multi_value: false,
+			wasm_bulk_memory: false,
+			wasm_reference_types: false,
+			wasm_simd: false,
+		},
+	};
+	let precompiled_blob =
+		sc_executor_wasmtime::prepare_runtime_artifact(blob, &config.semantics).unwrap();
+
+	let tmpdir = tempfile::tempdir().expect("jo");
+	let path = tmpdir.path().join("module.bin");
+	std::fs::write(&path, &precompiled_blob).unwrap();
+	unsafe {
+		Box::new(
+			sc_executor_wasmtime::create_runtime_from_artifact::<sp_io::SubstrateHostFunctions>(
+				&path, config,
+			)
+			.expect("works"),
+		)
+	}
 }
 
-/// Call `validate_block` in the given `wasm_blob`.
-pub fn validate_block_with_executor(
-	executor: &WasmExecutor<sp_io::SubstrateHostFunctions>,
-	validation_params: ValidationParams,
-	wasm_blob: &[u8],
-) -> ExecutorResult<ValidationResult> {
-	let mut ext = TestExternalities::default();
-	let mut ext_ext = ext.ext();
-	executor
-		.uncached_call(
-			RuntimeBlob::uncompress_if_needed(wasm_blob).expect("RuntimeBlob uncompress & parse"),
-			&mut ext_ext,
-			false,
-			"validate_block",
-			&validation_params.encode(),
-		)
-		.map(|v| ValidationResult::decode(&mut &v[..]).expect("Decode `ValidationResult`."))
-}
 criterion_group!(benches, validate_block);
 criterion_main!(benches);
