@@ -138,7 +138,7 @@ pub fn local_testnet_genesis() -> cumulus_test_runtime::GenesisConfig {
 	)
 }
 
-fn testnet_genesis(
+pub fn testnet_genesis(
 	root_key: AccountId,
 	endowed_accounts: Vec<AccountId>,
 ) -> cumulus_test_runtime::GenesisConfig {

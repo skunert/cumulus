@@ -182,7 +182,7 @@ fn benchmark_block_import(c: &mut Criterion) {
 	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
 		b.to_async(&runtime).iter_batched(
 			|| {
-				let parent_hash = dbg!(client.usage_info().chain.best_hash);
+				let parent_hash = client.usage_info().chain.best_hash;
 				let parent_header =
 					client.header(parent_hash).expect("Just fetched this hash.").unwrap();
 				let set_validate_extrinsic = extrinsic_set_validation_data(parent_header.clone());

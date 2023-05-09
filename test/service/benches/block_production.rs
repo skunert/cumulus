@@ -161,7 +161,7 @@ fn benchmark_block_production(c: &mut Criterion) {
 	// so let's make sure it's built and imported before we benchmark anything.
 	let mut block_builder = client.new_block(Default::default()).unwrap();
 	block_builder.push(extrinsic_set_time(0)).unwrap();
-	let parent_hash = dbg!(client.usage_info().chain.best_hash);
+	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
 	let set_validation_data_extrinsic = extrinsic_set_validation_data(parent_header);
 	block_builder.push(set_validation_data_extrinsic.clone()).unwrap();

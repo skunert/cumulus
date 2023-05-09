@@ -16,41 +16,51 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use codec::Encode;
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
-use cumulus_primitives_parachain_inherent::ParachainInherentData;
-use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{BalancesCall, Block, NodeBlock, UncheckedExtrinsic};
-use cumulus_test_service::{construct_extrinsic, Client as TestClient};
-use polkadot_primitives::HeadData;
-use sc_client_api::UsageProvider;
-
+use codec::{Decode, Encode};
 use core::time::Duration;
-use cumulus_primitives_core::{relay_chain::AccountId, ParaId, PersistedValidationData};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use cumulus_primitives_core::{
+	relay_chain::AccountId, ParaId, ParachainBlockData, PersistedValidationData, ValidationParams,
+};
+use cumulus_primitives_parachain_inherent::ParachainInherentData;
+use cumulus_test_client::{
+	generate_extrinsic_with_pair, BuildParachainBlockData, ExecutorResult, InitBlockBuilder,
+	TestClientBuilder, ValidationResult,
+};
+use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
+use cumulus_test_runtime::{
+	BalancesCall, Block, Header, NodeBlock, UncheckedExtrinsic, WASM_BINARY,
+};
+use polkadot_primitives::HeadData;
 use sc_block_builder::{BlockBuilderProvider, BuiltBlock, RecordProof};
+use sc_client_api::UsageProvider;
 use sc_consensus::{
 	block_import::{BlockImportParams, ForkChoiceStrategy},
 	BlockImport, ImportResult, StateAction,
 };
+use sc_executor::{HeapAllocStrategy, WasmExecutionMethod, WasmExecutor};
+use sc_executor_common::runtime_blob::RuntimeBlob;
 use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed};
 use sp_consensus::BlockOrigin;
 use sp_core::{sr25519, Pair};
+use sp_io::TestExternalities;
 use sp_keyring::Sr25519Keyring::Alice;
 use sp_runtime::{
-	traits::Block as BlockT,
+	traits::{Block as BlockT, Header as HeaderT},
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
-	OpaqueExtrinsic,
+	AccountId32, BuildStorage, OpaqueExtrinsic, Storage,
 };
 
-fn extrinsic_set_time(now: u64) -> OpaqueExtrinsic {
+fn extrinsic_set_time(now: u64) -> UncheckedExtrinsic {
 	cumulus_test_runtime::UncheckedExtrinsic {
 		signature: None,
 		function: cumulus_test_runtime::RuntimeCall::Timestamp(pallet_timestamp::Call::set { now }),
 	}
-	.into()
 }
 
-fn extrinsic_set_validation_data(parent_header: cumulus_test_runtime::Header) -> OpaqueExtrinsic {
+fn extrinsic_set_validation_data(
+	parent_header: cumulus_test_runtime::Header,
+) -> UncheckedExtrinsic {
 	let mut sproof_builder = RelayStateSproofBuilder::default();
 	sproof_builder.para_id = 100.into();
 	let parent_head = HeadData(parent_header.encode());
@@ -73,31 +83,26 @@ fn extrinsic_set_validation_data(parent_header: cumulus_test_runtime::Header) ->
 			cumulus_pallet_parachain_system::Call::set_validation_data { data },
 		),
 	}
-	.into()
 }
 
 fn prepare_benchmark(
-	client: &TestClient,
+	client: &cumulus_test_client::Client,
 	src_accounts: &[sr25519::Pair],
 	dst_accounts: &[sr25519::Pair],
-) -> (usize, Vec<OpaqueExtrinsic>) {
+) -> (usize, Vec<UncheckedExtrinsic>) {
 	// Add as many tranfer extrinsics as possible into a single block.
 	let mut block_builder = client.new_block(Default::default()).unwrap();
 	let mut max_transfer_count = 0;
 	let mut extrinsics = Vec::new();
-	// Every block needs one timestamp extrinsic.
-	let time_ext = extrinsic_set_time(1500);
-	extrinsics.push(time_ext);
 
 	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
-		let extrinsic: UncheckedExtrinsic = construct_extrinsic(
+		let extrinsic: UncheckedExtrinsic = generate_extrinsic_with_pair(
 			client,
+			src.clone(),
 			BalancesCall::transfer_keep_alive {
 				dest: AccountId::from(dst.public()).into(),
 				value: 10000,
 			},
-			src.clone(),
-			Some(0),
 		);
 
 		match block_builder.push(extrinsic.clone().into()) {
@@ -113,23 +118,6 @@ fn prepare_benchmark(
 	}
 
 	(max_transfer_count, extrinsics)
-}
-
-async fn import_block(
-	mut client: &TestClient,
-	built: BuiltBlock<
-		NodeBlock,
-		<TestClient as sp_api::CallApiAt<node_primitives::Block>>::StateBackend,
-	>,
-	import_existing: bool,
-) {
-	let mut params = BlockImportParams::new(BlockOrigin::File, built.block.header.clone());
-	params.body = Some(built.block.extrinsics.clone());
-	params.state_action = StateAction::Execute;
-	params.fork_choice = Some(ForkChoiceStrategy::LongestChain);
-	params.import_existing = import_existing;
-	let import_result = client.import_block(params).await;
-	assert_eq!(true, matches!(import_result, Ok(ImportResult::Imported(_))));
 }
 
 fn validate_block(c: &mut Criterion) {
@@ -150,21 +138,11 @@ fn validate_block(c: &mut Criterion) {
 		.map(|account| AccountId::from(account.public()))
 		.collect::<Vec<AccountId>>();
 
-	let alice = runtime.block_on(
-		cumulus_test_service::TestNodeBuilder::new(para_id, tokio_handle.clone(), Alice)
-			.endowed_accounts(endowed_accounts)
-			.build(),
-	);
-	let client = alice.client;
-
-	// Buliding the very first block is around ~30x slower than any subsequent one,
-	// so let's make sure it's built and imported before we benchmark anything.
-	let mut block_builder = client.new_block(Default::default()).unwrap();
-	block_builder.push(extrinsic_set_time(0)).unwrap();
-	let parent_hash = dbg!(client.usage_info().chain.best_hash);
-	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
-	block_builder.push(extrinsic_set_validation_data(parent_header)).unwrap();
-	runtime.block_on(import_block(&client, block_builder.build().unwrap(), false));
+	let mut test_client_builder = TestClientBuilder::with_default_backend()
+		.set_execution_strategy(sc_client_api::ExecutionStrategy::AlwaysWasm);
+	let mut genesis_init = test_client_builder.genesis_init_mut();
+	*genesis_init = cumulus_test_client::GenesisParameters { endowed_accounts };
+	let client = test_client_builder.build_with_native_executor(None).0;
 
 	let (src_accounts, dst_accounts) = accounts.split_at(10000);
 	let (max_transfer_count, extrinsics) = prepare_benchmark(&client, src_accounts, dst_accounts);
@@ -177,30 +155,88 @@ fn validate_block(c: &mut Criterion) {
 	group.measurement_time(Duration::from_secs(45));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
-	let best_hash = client.chain_info().best_hash;
-
-	let parent_hash = dbg!(client.usage_info().chain.best_hash);
+	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
-	let set_validate_extrinsic = extrinsic_set_validation_data(parent_header.clone());
+
+	let sproof_builder: RelayStateSproofBuilder = Default::default();
+	let (relay_parent_storage_root, _) = sproof_builder.clone().into_state_root_and_proof();
+	let mut validation_data = PersistedValidationData {
+		relay_parent_number: 1,
+		parent_head: parent_header.encode().into(),
+		..Default::default()
+	};
+
 	let mut block_builder =
-		client.new_block_at(best_hash, Default::default(), RecordProof::No).unwrap();
-	block_builder.push(set_validate_extrinsic.clone()).unwrap();
+		client.init_block_builder(Some(validation_data.clone()), Default::default());
+	validation_data.relay_parent_storage_root = relay_parent_storage_root;
 	for extrinsic in extrinsics.clone() {
 		block_builder.push(extrinsic).unwrap();
 	}
-	let built_block = block_builder.build().unwrap();
-	runtime.block_on(import_block(&*client, built_block, false));
+	let parachain_block = block_builder.build_parachain_block(*parent_header.state_root());
 
+	let heap_pages = HeapAllocStrategy::Static { extra_pages: 1024 };
+	let executor = WasmExecutor::<sp_io::SubstrateHostFunctions>::builder()
+		.with_execution_method(WasmExecutionMethod::Compiled {
+			instantiation_strategy: sc_executor::WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
+		})
+		.with_max_runtime_instances(1)
+		.with_runtime_cache_size(2)
+		.with_onchain_heap_alloc_strategy(heap_pages)
+		.with_offchain_heap_alloc_strategy(heap_pages)
+		.build();
+
+	// let expected = parachain_block.header().clone();
+	// let res_header =
+	// 	call_validate_block(parent_header, parachain_block, relay_parent_storage_root.clone).expect("jo");
+	// assert_eq!(expected, res_header);
 	group.bench_function(format!("{} imports (no proof)", max_transfer_count), |b| {
-		b.to_async(&runtime).iter_batched(
-			|| {},
-			|bb| async {
-				println!("what");
+		b.iter_batched(
+			|| (parent_header.clone(), parachain_block.clone(), relay_parent_storage_root.clone()),
+			|(parent_header, block, storage_root)| {
+				call_validate_block(&executor, parent_header, block, storage_root).expect("jo");
 			},
 			BatchSize::SmallInput,
 		)
 	});
 }
 
+fn call_validate_block(
+	executor: &WasmExecutor<sp_io::SubstrateHostFunctions>,
+	parent_head: cumulus_test_runtime::Header,
+	parachain_block: ParachainBlockData<Block>,
+	relay_parent_storage_root: cumulus_test_runtime::Hash,
+) -> cumulus_test_client::ExecutorResult<cumulus_test_runtime::Header> {
+	let head_data_encoded = validate_block_with_executor(
+		executor,
+		ValidationParams {
+			block_data: cumulus_test_client::BlockData(parachain_block.encode()),
+			parent_head: HeadData(parent_head.encode()),
+			relay_parent_number: 1,
+			relay_parent_storage_root,
+		},
+		WASM_BINARY.expect("You need to build the WASM binaries to run the tests!"),
+	)
+	.map(|v| v.head_data.0);
+	head_data_encoded.map(|v| Header::decode(&mut &v[..]).expect("Decodes `Header`."))
+}
+
+/// Call `validate_block` in the given `wasm_blob`.
+pub fn validate_block_with_executor(
+	executor: &WasmExecutor<sp_io::SubstrateHostFunctions>,
+	validation_params: ValidationParams,
+	wasm_blob: &[u8],
+) -> ExecutorResult<ValidationResult> {
+	let mut ext = TestExternalities::default();
+	let mut ext_ext = ext.ext();
+	executor
+		.uncached_call(
+			RuntimeBlob::uncompress_if_needed(wasm_blob).expect("RuntimeBlob uncompress & parse"),
+			&mut ext_ext,
+			false,
+			"validate_block",
+			&validation_params.encode(),
+		)
+		.map(|v| ValidationResult::decode(&mut &v[..]).expect("Decode `ValidationResult`."))
+}
 criterion_group!(benches, validate_block);
 criterion_main!(benches);
