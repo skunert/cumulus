@@ -73,6 +73,7 @@ cumulus-test-runtime = { path = "../runtime" }
 cumulus-relay-chain-minimal-node = { path = "../../client/relay-chain-minimal-node" }
 cumulus-client-pov-recovery = { path = "../../client/pov-recovery" }
 tempfile = "3.5.0"
+env_logger = "0.10.0"
 
 [dev-dependencies]
 futures = "0.3.28"
@@ -118,4 +119,8 @@ harness = false
 
 [[bench]]
 name = "validate_block"
+harness = false
+
+[[bench]]
+name = "validate_block_compute"
 harness = false

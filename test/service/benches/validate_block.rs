@@ -59,6 +59,7 @@ fn prepare_benchmark(
 				dest: AccountId::from(dst.public()).into(),
 				value: 10000,
 			},
+			None,
 		);
 
 		match block_builder.push(extrinsic.clone().into()) {
@@ -123,6 +124,12 @@ fn benchmark_block_validation(c: &mut Criterion) {
 
 	let parachain_block = block_builder.build_parachain_block(*parent_header.state_root());
 
+	tracing::info!(
+		"PoV size {{ header: {}kb, extrinsics: {}kb, storage_proof: {}kb }}",
+		parachain_block.header().encode().len() as f64 / 1024f64,
+		parachain_block.extrinsics().encode().len() as f64 / 1024f64,
+		parachain_block.storage_proof().encode().len() as f64 / 1024f64,
+	);
 	let runtime = initialize_wasm();
 
 	let encoded_params = ValidationParams {
