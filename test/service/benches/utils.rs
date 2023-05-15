@@ -165,7 +165,7 @@ pub(crate) fn create_extrinsics(
 	(max_transfer_count, extrinsics)
 }
 
-pub(crate) fn precompile_wasm() -> Box<dyn sc_executor_common::wasm_runtime::WasmModule> {
+pub(crate) fn get_wasm_module() -> Box<dyn sc_executor_common::wasm_runtime::WasmModule> {
 	let blob = RuntimeBlob::uncompress_if_needed(
 		WASM_BINARY.expect("You need to build the WASM binaries to run the benchmark!"),
 	)
@@ -188,12 +188,12 @@ pub(crate) fn precompile_wasm() -> Box<dyn sc_executor_common::wasm_runtime::Was
 			wasm_simd: false,
 		},
 	};
-	let precompiled_blob =
+	let prepared_blob =
 		sc_executor_wasmtime::prepare_runtime_artifact(blob, &config.semantics).unwrap();
 
-	let tmpdir = tempfile::tempdir().expect("jo");
+	let tmpdir = tempfile::tempdir().expect("Should be able to create temp dir.");
 	let path = tmpdir.path().join("module.bin");
-	std::fs::write(&path, &precompiled_blob).unwrap();
+	std::fs::write(&path, &prepared_blob).unwrap();
 	unsafe {
 		Box::new(
 			sc_executor_wasmtime::create_runtime_from_artifact::<sp_io::SubstrateHostFunctions>(

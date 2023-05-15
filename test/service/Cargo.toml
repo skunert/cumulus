@@ -118,6 +118,14 @@ name = "block_production"
 harness = false
 
 [[bench]]
+name = "block_production_compute"
+harness = false
+
+[[bench]]
+name = "block_import_compute"
+harness = false
+
+[[bench]]
 name = "validate_block"
 harness = false
 

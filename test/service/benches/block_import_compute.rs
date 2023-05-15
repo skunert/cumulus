@@ -16,9 +16,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
+use cumulus_test_runtime::{AccountId, GluttonCall, SudoCall};
+use cumulus_test_service::construct_extrinsic;
 use sc_client_api::UsageProvider;
+use sp_arithmetic::Perbill;
 
 use core::time::Duration;
 use cumulus_primitives_core::ParaId;
@@ -35,57 +38,88 @@ fn benchmark_block_import(c: &mut Criterion) {
 	let para_id = ParaId::from(100);
 	let tokio_handle = runtime.handle();
 
-	// Create enough accounts to fill the block with transactions.
-	// Each account should only be included in one transfer.
-	let (src_accounts, dst_accounts, account_ids) = utils::create_benchmark_accounts();
-
+	let endowed_accounts = vec![AccountId::from(Alice.public())];
 	let alice = runtime.block_on(
 		cumulus_test_service::TestNodeBuilder::new(para_id, tokio_handle.clone(), Alice)
 			// Preload all accounts with funds for the transfers
-			.endowed_accounts(account_ids)
+			.endowed_accounts(endowed_accounts)
 			.build(),
 	);
 	let client = alice.client;
 
 	// Building the very first block is around ~30x slower than any subsequent one,
 	// so let's make sure it's built and imported before we benchmark anything.
-	let mut block_builder = client.new_block(Default::default()).unwrap();
-	block_builder.push(utils::extrinsic_set_time(&client)).unwrap();
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
+
+	let initialize_glutton = construct_extrinsic(
+		&client,
+		SudoCall::sudo {
+			call: Box::new(
+				GluttonCall::initialize_pallet { new_count: 5000, witness_count: None }.into(),
+			),
+		},
+		Alice.into(),
+		Some(0),
+	);
+
+	let compute_level = Perbill::from_percent(100);
+	let storage_level = Perbill::from_percent(0);
+
+	let set_compute = construct_extrinsic(
+		&client,
+		SudoCall::sudo {
+			call: Box::new(GluttonCall::set_compute { compute: compute_level.clone() }.into()),
+		},
+		Alice.into(),
+		Some(1),
+	);
+
+	let set_storage = construct_extrinsic(
+		&client,
+		SudoCall::sudo {
+			call: Box::new(GluttonCall::set_storage { storage: storage_level.clone() }.into()),
+		},
+		Alice.into(),
+		Some(2),
+	);
+
+	let mut block_builder = client.new_block(Default::default()).unwrap();
+	block_builder.push(utils::extrinsic_set_time(&client)).unwrap();
 	block_builder.push(utils::extrinsic_set_validation_data(parent_header)).unwrap();
+	block_builder.push(initialize_glutton.into()).unwrap();
+	block_builder.push(set_compute.into()).unwrap();
+	block_builder.push(set_storage.into()).unwrap();
 	let built_block = block_builder.build().unwrap();
 	runtime.block_on(utils::import_block(&client, &built_block.block, false));
-
-	let (max_transfer_count, extrinsics) =
-		utils::create_extrinsics(&client, &src_accounts, &dst_accounts);
 
 	// Build the block we will use for benchmarking
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
-	let set_validate_extrinsic = utils::extrinsic_set_validation_data(parent_header.clone());
 	let mut block_builder =
 		client.new_block_at(parent_hash, Default::default(), RecordProof::No).unwrap();
-	block_builder.push(set_validate_extrinsic.clone()).unwrap();
-	for extrinsic in extrinsics.clone() {
-		block_builder.push(extrinsic).unwrap();
-	}
+	block_builder
+		.push(utils::extrinsic_set_validation_data(parent_header.clone()).clone())
+		.unwrap();
+	block_builder.push(utils::extrinsic_set_time(&client)).unwrap();
 	let benchmark_block = block_builder.build().unwrap();
 
 	let mut group = c.benchmark_group("Block import");
 	group.sample_size(20);
 	group.measurement_time(Duration::from_secs(120));
-	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
-	group.bench_function(format!("(transfers = {}) block import", max_transfer_count), |b| {
-		b.to_async(&runtime).iter_batched(
-			|| {},
-			|_| async {
-				utils::import_block(&*client, &benchmark_block.block, true).await;
-			},
-			BatchSize::SmallInput,
-		)
-	});
+	group.bench_function(
+		format!("(compute = {:?}, storage = {:?}) block import", compute_level, storage_level),
+		|b| {
+			b.to_async(&runtime).iter_batched(
+				|| {},
+				|_| async {
+					utils::import_block(&*client, &benchmark_block.block, true).await;
+				},
+				BatchSize::SmallInput,
+			)
+		},
+	);
 }
 
 criterion_group!(benches, benchmark_block_import);

@@ -31,9 +31,7 @@ use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy, ImportRes
 use sp_arithmetic::Perbill;
 use sp_consensus::BlockOrigin;
 
-use sp_core::{sr25519, Pair};
-
-use sp_keyring::Sr25519Keyring::{Alice, Bob};
+use sp_keyring::Sr25519Keyring::Alice;
 use sp_runtime::traits::Header as HeaderT;
 
 mod utils;
@@ -136,7 +134,7 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	);
 
 	runtime.block_on(import_block(&client, parachain_block.clone().into_block(), false));
-	let runtime = utils::precompile_wasm();
+	let runtime = utils::get_wasm_module();
 
 	let encoded_params = ValidationParams {
 		block_data: cumulus_test_client::BlockData(parachain_block.clone().encode()),

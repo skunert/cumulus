@@ -118,7 +118,7 @@ fn benchmark_block_validation(c: &mut Criterion) {
 		"Storage Proof Size: {}",
 		parachain_block.storage_proof().encode().len() as f64 / 1024f64,
 	);
-	let runtime = utils::precompile_wasm();
+	let runtime = utils::get_wasm_module();
 
 	let encoded_params = ValidationParams {
 		block_data: cumulus_test_client::BlockData(parachain_block.clone().encode()),
