@@ -24,13 +24,11 @@ use cumulus_test_client::{
 	generate_extrinsic_with_pair, BuildParachainBlockData, InitBlockBuilder, TestClientBuilder,
 };
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{BalancesCall, UncheckedExtrinsic, WASM_BINARY};
+use cumulus_test_runtime::{BalancesCall, UncheckedExtrinsic};
 use polkadot_primitives::HeadData;
 use sc_block_builder::BlockBuilderProvider;
 use sc_client_api::UsageProvider;
 
-use sc_executor::DEFAULT_HEAP_ALLOC_STRATEGY;
-use sc_executor_common::runtime_blob::RuntimeBlob;
 use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed};
 
 use sp_core::{sr25519, Pair};

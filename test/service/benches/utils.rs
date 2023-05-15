@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use codec::Encode;
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+
 use cumulus_primitives_parachain_inherent::ParachainInherentData;
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
 use cumulus_test_runtime::{BalancesCall, NodeBlock, UncheckedExtrinsic, WASM_BINARY};
@@ -25,9 +25,8 @@ use cumulus_test_service::{construct_extrinsic, Client as TestClient};
 use polkadot_primitives::HeadData;
 use sc_client_api::UsageProvider;
 
-use core::time::Duration;
-use cumulus_primitives_core::{relay_chain::AccountId, ParaId, PersistedValidationData};
-use sc_block_builder::{BlockBuilderProvider, RecordProof};
+use cumulus_primitives_core::{relay_chain::AccountId, PersistedValidationData};
+use sc_block_builder::BlockBuilderProvider;
 use sc_consensus::{
 	block_import::{BlockImportParams, ForkChoiceStrategy},
 	BlockImport, ImportResult, StateAction,
