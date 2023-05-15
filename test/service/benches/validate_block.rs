@@ -35,13 +35,14 @@ use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed}
 
 use sp_core::{sr25519, Pair};
 
-use sp_keyring::Sr25519Keyring::Alice;
 use sp_runtime::{
 	traits::Header as HeaderT,
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
 
-fn prepare_benchmark(
+mod utils;
+
+fn create_extrinsics(
 	client: &cumulus_test_client::Client,
 	src_accounts: &[sr25519::Pair],
 	dst_accounts: &[sr25519::Pair],
@@ -79,26 +80,17 @@ fn prepare_benchmark(
 
 fn benchmark_block_validation(c: &mut Criterion) {
 	sp_tracing::try_init_simple();
-	let accounts: Vec<sr25519::Pair> = (0..20000)
-		.into_iter()
-		.map(|idx| {
-			Pair::from_string(&format!("{}/{}", Alice.to_seed(), idx), None)
-				.expect("Creates account pair")
-		})
-		.collect();
-	let endowed_accounts = accounts
-		.iter()
-		.map(|account| AccountId::from(account.public()))
-		.collect::<Vec<AccountId>>();
+	// Create enough accounts to fill the block with transactions.
+	// Each account should only be included in one transfer.
+	let (src_accounts, dst_accounts, account_ids) = utils::create_benchmark_accounts();
 
 	let mut test_client_builder = TestClientBuilder::with_default_backend()
 		.set_execution_strategy(sc_client_api::ExecutionStrategy::AlwaysWasm);
 	let genesis_init = test_client_builder.genesis_init_mut();
-	*genesis_init = cumulus_test_client::GenesisParameters { endowed_accounts };
+	*genesis_init = cumulus_test_client::GenesisParameters { endowed_accounts: account_ids };
 	let client = test_client_builder.build_with_native_executor(None).0;
 
-	let (src_accounts, dst_accounts) = accounts.split_at(10000);
-	let (max_transfer_count, extrinsics) = prepare_benchmark(&client, src_accounts, dst_accounts);
+	let (max_transfer_count, extrinsics) = create_extrinsics(&client, &src_accounts, &dst_accounts);
 
 	tracing::info!("Maximum transfer count: {}", max_transfer_count);
 
@@ -125,12 +117,10 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	let parachain_block = block_builder.build_parachain_block(*parent_header.state_root());
 
 	tracing::info!(
-		"PoV size {{ header: {}kb, extrinsics: {}kb, storage_proof: {}kb }}",
-		parachain_block.header().encode().len() as f64 / 1024f64,
-		parachain_block.extrinsics().encode().len() as f64 / 1024f64,
+		"Storage Proof Size: {}",
 		parachain_block.storage_proof().encode().len() as f64 / 1024f64,
 	);
-	let runtime = initialize_wasm();
+	let runtime = utils::precompile_wasm();
 
 	let encoded_params = ValidationParams {
 		block_data: cumulus_test_client::BlockData(parachain_block.clone().encode()),
@@ -153,45 +143,6 @@ fn benchmark_block_validation(c: &mut Criterion) {
 			BatchSize::SmallInput,
 		)
 	});
-}
-
-fn initialize_wasm() -> Box<dyn sc_executor_common::wasm_runtime::WasmModule> {
-	let blob = RuntimeBlob::uncompress_if_needed(
-		WASM_BINARY.expect("You need to build the WASM binaries to run the benchmark!"),
-	)
-	.unwrap();
-
-	let allow_missing_func_imports = true;
-
-	let config = sc_executor_wasmtime::Config {
-		allow_missing_func_imports,
-		cache_path: None,
-		semantics: sc_executor_wasmtime::Semantics {
-			heap_alloc_strategy: DEFAULT_HEAP_ALLOC_STRATEGY,
-			instantiation_strategy: sc_executor::WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
-			deterministic_stack_limit: None,
-			canonicalize_nans: false,
-			parallel_compilation: true,
-			wasm_multi_value: false,
-			wasm_bulk_memory: false,
-			wasm_reference_types: false,
-			wasm_simd: false,
-		},
-	};
-	let precompiled_blob =
-		sc_executor_wasmtime::prepare_runtime_artifact(blob, &config.semantics).unwrap();
-
-	let tmpdir = tempfile::tempdir().expect("jo");
-	let path = tmpdir.path().join("module.bin");
-	std::fs::write(&path, &precompiled_blob).unwrap();
-	unsafe {
-		Box::new(
-			sc_executor_wasmtime::create_runtime_from_artifact::<sp_io::SubstrateHostFunctions>(
-				&path, config,
-			)
-			.expect("works"),
-		)
-	}
 }
 
 criterion_group!(benches, benchmark_block_validation);
