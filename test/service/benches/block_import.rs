@@ -74,7 +74,7 @@ fn benchmark_block_import(c: &mut Criterion) {
 
 	let mut group = c.benchmark_group("Block import");
 	group.sample_size(20);
-	group.measurement_time(Duration::from_secs(45));
+	group.measurement_time(Duration::from_secs(120));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
 	group.bench_function(format!("block import with {} transfers", max_transfer_count), |b| {

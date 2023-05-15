@@ -18,67 +18,25 @@
 
 use codec::Encode;
 use core::time::Duration;
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use cumulus_primitives_core::{relay_chain::AccountId, PersistedValidationData, ValidationParams};
 use cumulus_test_client::{
 	generate_extrinsic_with_pair, BuildParachainBlockData, InitBlockBuilder, TestClientBuilder,
 };
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{BalancesCall, GluttonCall, SudoCall, UncheckedExtrinsic, WASM_BINARY};
+use cumulus_test_runtime::{GluttonCall, SudoCall};
 use polkadot_primitives::HeadData;
-use sc_block_builder::BlockBuilderProvider;
 use sc_client_api::UsageProvider;
 use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult, StateAction};
 use sp_arithmetic::Perbill;
 use sp_consensus::BlockOrigin;
 
-use sc_executor::DEFAULT_HEAP_ALLOC_STRATEGY;
-use sc_executor_common::runtime_blob::RuntimeBlob;
-use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed};
-
 use sp_core::{sr25519, Pair};
 
 use sp_keyring::Sr25519Keyring::{Alice, Bob};
-use sp_runtime::{
-	traits::Header as HeaderT,
-	transaction_validity::{InvalidTransaction, TransactionValidityError},
-};
+use sp_runtime::traits::Header as HeaderT;
 
-fn prepare_benchmark(
-	client: &cumulus_test_client::Client,
-	src_accounts: &[sr25519::Pair],
-	dst_accounts: &[sr25519::Pair],
-) -> (usize, Vec<UncheckedExtrinsic>) {
-	// Add as many tranfer extrinsics as possible into a single block.
-	let mut block_builder = client.new_block(Default::default()).unwrap();
-	let mut max_transfer_count = 0;
-	let mut extrinsics = Vec::new();
-
-	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
-		let extrinsic: UncheckedExtrinsic = generate_extrinsic_with_pair(
-			client,
-			src.clone(),
-			BalancesCall::transfer_keep_alive {
-				dest: AccountId::from(dst.public()).into(),
-				value: 10000,
-			},
-			None,
-		);
-
-		match block_builder.push(extrinsic.clone().into()) {
-			Ok(_) => {},
-			Err(ApplyExtrinsicFailed(Validity(TransactionValidityError::Invalid(
-				InvalidTransaction::ExhaustsResources,
-			)))) => break,
-			Err(error) => panic!("{}", error),
-		}
-
-		extrinsics.push(extrinsic.into());
-		max_transfer_count += 1;
-	}
-
-	(max_transfer_count, extrinsics)
-}
+mod utils;
 
 async fn import_block(
 	mut client: &cumulus_test_client::Client,
@@ -98,28 +56,13 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	sp_tracing::try_init_simple();
 	let runtime = tokio::runtime::Runtime::new().expect("creating tokio runtime doesn't fail; qed");
 
-	let mut accounts: Vec<sr25519::Pair> = (0..20000)
-		.into_iter()
-		.map(|idx| {
-			Pair::from_string(&format!("{}/{}", Alice.to_seed(), idx), None)
-				.expect("Creates account pair")
-		})
-		.collect();
-	accounts.push(Alice.into());
-	accounts.push(Bob.into());
-
-	let endowed_accounts = accounts
-		.iter()
-		.map(|account| AccountId::from(account.public()))
-		.collect::<Vec<AccountId>>();
-
+	let endowed_accounts = vec![AccountId::from(Alice.public())];
 	let mut test_client_builder = TestClientBuilder::with_default_backend()
 		.set_execution_strategy(sc_client_api::ExecutionStrategy::NativeElseWasm);
 	let genesis_init = test_client_builder.genesis_init_mut();
 	*genesis_init = cumulus_test_client::GenesisParameters { endowed_accounts };
-	let client = test_client_builder.build_with_native_executor(None).0;
 
-	let mut group = c.benchmark_group("Block production");
+	let client = test_client_builder.build_with_native_executor(None).0;
 
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
@@ -146,11 +89,14 @@ fn benchmark_block_validation(c: &mut Criterion) {
 		Some(0),
 	);
 
+	let compute_level = Perbill::from_percent(100);
+	let storage_level = Perbill::from_percent(0);
+
 	let set_compute = generate_extrinsic_with_pair(
 		&client,
 		Alice.into(),
 		SudoCall::sudo {
-			call: Box::new(GluttonCall::set_compute { compute: Perbill::from_percent(100) }.into()),
+			call: Box::new(GluttonCall::set_compute { compute: compute_level.clone() }.into()),
 		},
 		Some(1),
 	);
@@ -159,7 +105,7 @@ fn benchmark_block_validation(c: &mut Criterion) {
 		&client,
 		Alice.into(),
 		SudoCall::sudo {
-			call: Box::new(GluttonCall::set_storage { storage: Perbill::from_percent(20) }.into()),
+			call: Box::new(GluttonCall::set_storage { storage: storage_level.clone() }.into()),
 		},
 		Some(2),
 	);
@@ -190,7 +136,7 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	);
 
 	runtime.block_on(import_block(&client, parachain_block.clone().into_block(), false));
-	let runtime = initialize_wasm();
+	let runtime = utils::precompile_wasm();
 
 	let encoded_params = ValidationParams {
 		block_data: cumulus_test_client::BlockData(parachain_block.clone().encode()),
@@ -200,58 +146,22 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	}
 	.encode();
 
+	let mut group = c.benchmark_group("Block validation");
 	group.sample_size(20);
-	group.measurement_time(Duration::from_secs(45));
-	group.throughput(Throughput::Elements(1000));
+	group.measurement_time(Duration::from_secs(120));
 
-	group.bench_function(format!("block validation with {} transfer", 1000), |b| {
-		b.iter_batched(
-			|| runtime.new_instance().unwrap(),
-			|mut instance| {
-				instance.call_export("validate_block", &encoded_params).unwrap();
-			},
-			BatchSize::SmallInput,
-		)
-	});
-}
-
-fn initialize_wasm() -> Box<dyn sc_executor_common::wasm_runtime::WasmModule> {
-	let blob = RuntimeBlob::uncompress_if_needed(
-		WASM_BINARY.expect("You need to build the WASM binaries to run the benchmark!"),
-	)
-	.unwrap();
-
-	let allow_missing_func_imports = true;
-
-	let config = sc_executor_wasmtime::Config {
-		allow_missing_func_imports,
-		cache_path: None,
-		semantics: sc_executor_wasmtime::Semantics {
-			heap_alloc_strategy: DEFAULT_HEAP_ALLOC_STRATEGY,
-			instantiation_strategy: sc_executor::WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
-			deterministic_stack_limit: None,
-			canonicalize_nans: false,
-			parallel_compilation: true,
-			wasm_multi_value: false,
-			wasm_bulk_memory: false,
-			wasm_reference_types: false,
-			wasm_simd: false,
-		},
-	};
-	let precompiled_blob =
-		sc_executor_wasmtime::prepare_runtime_artifact(blob, &config.semantics).unwrap();
-
-	let tmpdir = tempfile::tempdir().expect("jo");
-	let path = tmpdir.path().join("module.bin");
-	std::fs::write(&path, &precompiled_blob).unwrap();
-	unsafe {
-		Box::new(
-			sc_executor_wasmtime::create_runtime_from_artifact::<sp_io::SubstrateHostFunctions>(
-				&path, config,
+	group.bench_function(
+		format!("(compute = {:?}, storage = {:?}) block validation", compute_level, storage_level),
+		|b| {
+			b.iter_batched(
+				|| runtime.new_instance().unwrap(),
+				|mut instance| {
+					instance.call_export("validate_block", &encoded_params).unwrap();
+				},
+				BatchSize::SmallInput,
 			)
-			.expect("works"),
-		)
-	}
+		},
+	);
 }
 
 criterion_group!(benches, benchmark_block_validation);

@@ -129,10 +129,10 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	.encode();
 
 	group.sample_size(20);
-	group.measurement_time(Duration::from_secs(45));
+	group.measurement_time(Duration::from_secs(120));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
-	group.bench_function(format!("block validation with {} transfer", max_transfer_count), |b| {
+	group.bench_function(format!("(transfers = {}) block validation", max_transfer_count), |b| {
 		b.iter_batched(
 			|| runtime.new_instance().unwrap(),
 			|mut instance| {

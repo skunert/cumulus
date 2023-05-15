@@ -68,7 +68,7 @@ fn benchmark_block_production(c: &mut Criterion) {
 	let mut group = c.benchmark_group("Block production");
 
 	group.sample_size(20);
-	group.measurement_time(Duration::from_secs(45));
+	group.measurement_time(Duration::from_secs(120));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
 	let best_hash = client.chain_info().best_hash;
