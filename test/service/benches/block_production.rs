@@ -38,13 +38,21 @@ use sp_core::{sr25519, Pair};
 use sp_keyring::Sr25519Keyring::Alice;
 use sp_runtime::{
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
-	OpaqueExtrinsic,
+	AccountId32, OpaqueExtrinsic,
 };
 
-fn extrinsic_set_time(now: u64) -> OpaqueExtrinsic {
+// Accounts to use for transfer transactions. Enough for 5000 transactions.
+const NUM_ACCOUNTS: usize = 10000;
+
+fn extrinsic_set_time(client: &TestClient) -> OpaqueExtrinsic {
+	let best_number = client.usage_info().chain.best_number;
+
+	let timestamp = best_number as u64 * cumulus_test_runtime::MinimumPeriod::get();
 	cumulus_test_runtime::UncheckedExtrinsic {
 		signature: None,
-		function: cumulus_test_runtime::RuntimeCall::Timestamp(pallet_timestamp::Call::set { now }),
+		function: cumulus_test_runtime::RuntimeCall::Timestamp(pallet_timestamp::Call::set {
+			now: timestamp,
+		}),
 	}
 	.into()
 }
@@ -75,7 +83,7 @@ fn extrinsic_set_validation_data(parent_header: cumulus_test_runtime::Header) ->
 	.into()
 }
 
-fn prepare_benchmark(
+fn create_extrinsics(
 	client: &TestClient,
 	src_accounts: &[sr25519::Pair],
 	dst_accounts: &[sr25519::Pair],
@@ -85,7 +93,7 @@ fn prepare_benchmark(
 	let mut max_transfer_count = 0;
 	let mut extrinsics = Vec::new();
 	// Every block needs one timestamp extrinsic.
-	let time_ext = extrinsic_set_time(1500);
+	let time_ext = extrinsic_set_time(client);
 	extrinsics.push(time_ext);
 
 	for (src, dst) in src_accounts.iter().zip(dst_accounts.iter()) {
@@ -111,6 +119,10 @@ fn prepare_benchmark(
 		max_transfer_count += 1;
 	}
 
+	if max_transfer_count == src_accounts.len() {
+		panic!("Block could fit more transfers, increase NUM_ACCOUNTS to generate more accounts.");
+	}
+
 	(max_transfer_count, extrinsics)
 }
 
@@ -131,44 +143,52 @@ async fn import_block(
 	assert_eq!(true, matches!(import_result, Ok(ImportResult::Imported(_))));
 }
 
-fn benchmark_block_production(c: &mut Criterion) {
-	sp_tracing::try_init_simple();
-
-	let runtime = tokio::runtime::Runtime::new().expect("creating tokio runtime doesn't fail; qed");
-	let para_id = ParaId::from(100);
-	let tokio_handle = runtime.handle();
-	let accounts: Vec<sr25519::Pair> = (0..20000)
+fn create_benchmark_accounts() -> (Vec<sr25519::Pair>, Vec<sr25519::Pair>, Vec<AccountId32>) {
+	let accounts: Vec<sr25519::Pair> = (0..NUM_ACCOUNTS)
 		.into_iter()
 		.map(|idx| {
 			Pair::from_string(&format!("{}/{}", Alice.to_seed(), idx), None)
 				.expect("Creates account pair")
 		})
 		.collect();
-	let endowed_accounts = accounts
+	let account_ids = accounts
 		.iter()
 		.map(|account| AccountId::from(account.public()))
 		.collect::<Vec<AccountId>>();
+	let (src_accounts, dst_accounts) = accounts.split_at(NUM_ACCOUNTS / 2);
+	(src_accounts.to_vec(), dst_accounts.to_vec(), account_ids)
+}
 
+fn benchmark_block_production(c: &mut Criterion) {
+	sp_tracing::try_init_simple();
+
+	let runtime = tokio::runtime::Runtime::new().expect("creating tokio runtime doesn't fail; qed");
+	let tokio_handle = runtime.handle();
+
+	// Create enough accounts to fill the block with transactions.
+	// Each account should only be included in one transfer.
+	let (src_accounts, dst_accounts, account_ids) = create_benchmark_accounts();
+
+	let para_id = ParaId::from(100);
 	let alice = runtime.block_on(
 		cumulus_test_service::TestNodeBuilder::new(para_id, tokio_handle.clone(), Alice)
-			.endowed_accounts(endowed_accounts)
+			.endowed_accounts(account_ids)
 			.build(),
 	);
 	let client = alice.client;
 
-	// Buliding the very first block is around ~30x slower than any subsequent one,
+	// Building the very first block is around ~30x slower than any subsequent one,
 	// so let's make sure it's built and imported before we benchmark anything.
 	let mut block_builder = client.new_block(Default::default()).unwrap();
-	block_builder.push(extrinsic_set_time(0)).unwrap();
+	block_builder.push(extrinsic_set_time(&client)).unwrap();
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
 	let set_validation_data_extrinsic = extrinsic_set_validation_data(parent_header);
 	block_builder.push(set_validation_data_extrinsic.clone()).unwrap();
 	runtime.block_on(import_block(&client, block_builder.build().unwrap(), false));
 
-	let (src_accounts, dst_accounts) = accounts.split_at(10000);
 	let (max_transfer_count, mut extrinsics) =
-		prepare_benchmark(&client, src_accounts, dst_accounts);
+		create_extrinsics(&client, &src_accounts, &dst_accounts);
 	extrinsics.push(set_validation_data_extrinsic);
 
 	tracing::info!("Maximum transfer count: {}", max_transfer_count);
@@ -181,20 +201,43 @@ fn benchmark_block_production(c: &mut Criterion) {
 
 	let best_hash = client.chain_info().best_hash;
 
-	group.bench_function(format!("block production with {} transfers", max_transfer_count), |b| {
-		b.iter_batched(
-			|| extrinsics.clone(),
-			|extrinsics| {
-				let mut block_builder =
-					client.new_block_at(best_hash, Default::default(), RecordProof::Yes).unwrap();
-				for extrinsic in extrinsics {
-					block_builder.push(extrinsic).unwrap();
-				}
-				block_builder.build().unwrap()
-			},
-			BatchSize::SmallInput,
-		)
-	});
+	group.bench_function(
+		format!("block production with {} transfers (proof enabled)", max_transfer_count),
+		|b| {
+			b.iter_batched(
+				|| extrinsics.clone(),
+				|extrinsics| {
+					let mut block_builder = client
+						.new_block_at(best_hash, Default::default(), RecordProof::Yes)
+						.unwrap();
+					for extrinsic in extrinsics {
+						block_builder.push(extrinsic).unwrap();
+					}
+					block_builder.build().unwrap()
+				},
+				BatchSize::SmallInput,
+			)
+		},
+	);
+
+	group.bench_function(
+		format!("block production with {} transfers (proof disabled)", max_transfer_count),
+		|b| {
+			b.iter_batched(
+				|| extrinsics.clone(),
+				|extrinsics| {
+					let mut block_builder = client
+						.new_block_at(best_hash, Default::default(), RecordProof::No)
+						.unwrap();
+					for extrinsic in extrinsics {
+						block_builder.push(extrinsic).unwrap();
+					}
+					block_builder.build().unwrap()
+				},
+				BatchSize::SmallInput,
+			)
+		},
+	);
 }
 
 criterion_group!(benches, benchmark_block_production);
