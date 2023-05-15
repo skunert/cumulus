@@ -92,16 +92,9 @@ fn benchmark_block_validation(c: &mut Criterion) {
 
 	let (max_transfer_count, extrinsics) = create_extrinsics(&client, &src_accounts, &dst_accounts);
 
-	tracing::info!("Maximum transfer count: {}", max_transfer_count);
-
-	let mut group = c.benchmark_group("Block production");
-
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
 
-	let sproof_builder: RelayStateSproofBuilder = Default::default();
-
-	let (relay_parent_storage_root, _) = sproof_builder.clone().into_state_root_and_proof();
 	let validation_data = PersistedValidationData {
 		relay_parent_number: 1,
 		parent_head: parent_header.encode().into(),
@@ -119,6 +112,8 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	let proof_size_in_kb = parachain_block.storage_proof().encode().len() as f64 / 1024f64;
 	let runtime = utils::get_wasm_module();
 
+	let sproof_builder: RelayStateSproofBuilder = Default::default();
+	let (relay_parent_storage_root, _) = sproof_builder.clone().into_state_root_and_proof();
 	let encoded_params = ValidationParams {
 		block_data: cumulus_test_client::BlockData(parachain_block.clone().encode()),
 		parent_head: HeadData(parent_header.encode()),
@@ -132,6 +127,7 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	// we expect.
 	verify_expected_result(&runtime, &encoded_params, parachain_block.into_block());
 
+	let mut group = c.benchmark_group("Block production");
 	group.sample_size(20);
 	group.measurement_time(Duration::from_secs(120));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));

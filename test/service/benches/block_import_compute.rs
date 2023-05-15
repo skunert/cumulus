@@ -18,14 +18,16 @@
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
-use cumulus_test_runtime::{AccountId, GluttonCall, SudoCall};
-use cumulus_test_service::construct_extrinsic;
+use cumulus_test_runtime::{AccountId, GluttonCall, NodeBlock, SudoCall};
+use cumulus_test_service::{construct_extrinsic, Client as TestClient};
 use sc_client_api::UsageProvider;
+use sp_api::ProvideRuntimeApi;
 use sp_arithmetic::Perbill;
 
 use core::time::Duration;
 use cumulus_primitives_core::ParaId;
 
+use frame_system_rpc_runtime_api::AccountNonceApi;
 use sc_block_builder::{BlockBuilderProvider, RecordProof};
 use sp_keyring::Sr25519Keyring::Alice;
 
@@ -47,79 +49,115 @@ fn benchmark_block_import(c: &mut Criterion) {
 	);
 	let client = alice.client;
 
+	let mut group = c.benchmark_group("Block import");
+	group.sample_size(20);
+	group.measurement_time(Duration::from_secs(120));
+
+	let mut initialize_glutton_pallet = true;
+	for (compute_percent, storage_percent) in vec![
+		(Perbill::from_percent(100), Perbill::from_percent(0)),
+		(Perbill::from_percent(100), Perbill::from_percent(100)),
+	] {
+		let block = set_glutton_parameters(
+			&client,
+			initialize_glutton_pallet,
+			&compute_percent,
+			&compute_percent,
+		);
+		initialize_glutton_pallet = false;
+
+		runtime.block_on(utils::import_block(&client, &block, false));
+
+		// Build the block we will use for benchmarking
+		let parent_hash = client.usage_info().chain.best_hash;
+		let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
+		let mut block_builder =
+			client.new_block_at(parent_hash, Default::default(), RecordProof::No).unwrap();
+		block_builder
+			.push(utils::extrinsic_set_validation_data(parent_header.clone()).clone())
+			.unwrap();
+		block_builder.push(utils::extrinsic_set_time(&client)).unwrap();
+		let benchmark_block = block_builder.build().unwrap();
+
+		group.bench_function(
+			format!(
+				"(compute = {:?}, storage = {:?}) block import",
+				compute_percent, storage_percent
+			),
+			|b| {
+				b.to_async(&runtime).iter_batched(
+					|| {},
+					|_| async {
+						utils::import_block(&*client, &benchmark_block.block, true).await;
+					},
+					BatchSize::SmallInput,
+				)
+			},
+		);
+	}
+}
+
+fn set_glutton_parameters(
+	client: &TestClient,
+	initialize: bool,
+	compute_percent: &Perbill,
+	storage_percent: &Perbill,
+) -> NodeBlock {
 	// Building the very first block is around ~30x slower than any subsequent one,
 	// so let's make sure it's built and imported before we benchmark anything.
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
 
-	let initialize_glutton = construct_extrinsic(
-		&client,
-		SudoCall::sudo {
-			call: Box::new(
-				GluttonCall::initialize_pallet { new_count: 5000, witness_count: None }.into(),
-			),
-		},
-		Alice.into(),
-		Some(0),
-	);
+	let mut last_nonce = client
+		.runtime_api()
+		.account_nonce(parent_hash, Alice.into())
+		.expect("Fetching account nonce works; qed");
 
-	let compute_level = Perbill::from_percent(100);
-	let storage_level = Perbill::from_percent(0);
+	let mut extrinsics = vec![];
+	if initialize {
+		extrinsics.push(construct_extrinsic(
+			&client,
+			SudoCall::sudo {
+				call: Box::new(
+					GluttonCall::initialize_pallet { new_count: 5000, witness_count: None }.into(),
+				),
+			},
+			Alice.into(),
+			Some(last_nonce + 1),
+		));
+		last_nonce += 1;
+	}
 
 	let set_compute = construct_extrinsic(
 		&client,
 		SudoCall::sudo {
-			call: Box::new(GluttonCall::set_compute { compute: compute_level.clone() }.into()),
+			call: Box::new(GluttonCall::set_compute { compute: compute_percent.clone() }.into()),
 		},
 		Alice.into(),
-		Some(1),
+		Some(last_nonce + 1),
 	);
+	last_nonce += 1;
+	extrinsics.push(set_compute);
 
 	let set_storage = construct_extrinsic(
 		&client,
 		SudoCall::sudo {
-			call: Box::new(GluttonCall::set_storage { storage: storage_level.clone() }.into()),
+			call: Box::new(GluttonCall::set_storage { storage: storage_percent.clone() }.into()),
 		},
 		Alice.into(),
-		Some(2),
+		Some(last_nonce + 1),
 	);
+	extrinsics.push(set_storage);
 
 	let mut block_builder = client.new_block(Default::default()).unwrap();
 	block_builder.push(utils::extrinsic_set_time(&client)).unwrap();
 	block_builder.push(utils::extrinsic_set_validation_data(parent_header)).unwrap();
-	block_builder.push(initialize_glutton.into()).unwrap();
-	block_builder.push(set_compute.into()).unwrap();
-	block_builder.push(set_storage.into()).unwrap();
+	for extrinsic in extrinsics {
+		block_builder.push(extrinsic.into()).unwrap();
+	}
+
 	let built_block = block_builder.build().unwrap();
-	runtime.block_on(utils::import_block(&client, &built_block.block, false));
-
-	// Build the block we will use for benchmarking
-	let parent_hash = client.usage_info().chain.best_hash;
-	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
-	let mut block_builder =
-		client.new_block_at(parent_hash, Default::default(), RecordProof::No).unwrap();
-	block_builder
-		.push(utils::extrinsic_set_validation_data(parent_header.clone()).clone())
-		.unwrap();
-	block_builder.push(utils::extrinsic_set_time(&client)).unwrap();
-	let benchmark_block = block_builder.build().unwrap();
-
-	let mut group = c.benchmark_group("Block import");
-	group.sample_size(20);
-	group.measurement_time(Duration::from_secs(120));
-
-	group.bench_function(
-		format!("(compute = {:?}, storage = {:?}) block import", compute_level, storage_level),
-		|b| {
-			b.to_async(&runtime).iter_batched(
-				|| {},
-				|_| async {
-					utils::import_block(&*client, &benchmark_block.block, true).await;
-				},
-				BatchSize::SmallInput,
-			)
-		},
-	);
+	built_block.block
 }
 
 criterion_group!(benches, benchmark_block_import);
