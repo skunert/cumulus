@@ -16,18 +16,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use codec::Encode;
+use codec::{Decode, Encode};
 use core::time::Duration;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use cumulus_primitives_core::{relay_chain::AccountId, PersistedValidationData, ValidationParams};
 use cumulus_test_client::{
 	generate_extrinsic_with_pair, BuildParachainBlockData, InitBlockBuilder, TestClientBuilder,
+	ValidationResult,
 };
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{BalancesCall, UncheckedExtrinsic};
+use cumulus_test_runtime::{BalancesCall, Block, Header, UncheckedExtrinsic};
 use polkadot_primitives::HeadData;
 use sc_block_builder::BlockBuilderProvider;
 use sc_client_api::UsageProvider;
+use sc_executor_common::wasm_runtime::WasmModule;
 
 use sp_blockchain::{ApplyExtrinsicFailed::Validity, Error::ApplyExtrinsicFailed};
 
@@ -114,10 +116,7 @@ fn benchmark_block_validation(c: &mut Criterion) {
 
 	let parachain_block = block_builder.build_parachain_block(*parent_header.state_root());
 
-	tracing::info!(
-		"Storage Proof Size: {}",
-		parachain_block.storage_proof().encode().len() as f64 / 1024f64,
-	);
+	let proof_size_in_kb = parachain_block.storage_proof().encode().len() as f64 / 1024f64;
 	let runtime = utils::get_wasm_module();
 
 	let encoded_params = ValidationParams {
@@ -128,19 +127,47 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	}
 	.encode();
 
+	// This is not strictly necessary for this benchmark, but
+	// let us make sure that the result of `validate_block` is what
+	// we expect.
+	verify_expected_result(&runtime, &encoded_params, parachain_block.into_block());
+
 	group.sample_size(20);
 	group.measurement_time(Duration::from_secs(120));
 	group.throughput(Throughput::Elements(max_transfer_count as u64));
 
-	group.bench_function(format!("(transfers = {}) block validation", max_transfer_count), |b| {
-		b.iter_batched(
-			|| runtime.new_instance().unwrap(),
-			|mut instance| {
-				instance.call_export("validate_block", &encoded_params).unwrap();
-			},
-			BatchSize::SmallInput,
-		)
-	});
+	group.bench_function(
+		format!(
+			"(transfers = {}, proof_size = {}kb) block validation",
+			max_transfer_count, proof_size_in_kb
+		),
+		|b| {
+			b.iter_batched(
+				|| runtime.new_instance().unwrap(),
+				|mut instance| {
+					instance.call_export("validate_block", &encoded_params).unwrap();
+				},
+				BatchSize::SmallInput,
+			)
+		},
+	);
+}
+
+fn verify_expected_result(
+	runtime: &Box<dyn WasmModule>,
+	encoded_params: &Vec<u8>,
+	parachain_block: Block,
+) {
+	let res = runtime
+		.new_instance()
+		.unwrap()
+		.call_export("validate_block", encoded_params)
+		.expect("Call `validate_block`.");
+	let validation_result =
+		ValidationResult::decode(&mut &res[..]).expect("Decode `ValidationResult`.");
+	let header =
+		Header::decode(&mut &validation_result.head_data.0[..]).expect("Decodes `Header`.");
+	assert_eq!(parachain_block.header, header);
 }
 
 criterion_group!(benches, benchmark_block_validation);

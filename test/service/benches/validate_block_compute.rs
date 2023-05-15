@@ -16,18 +16,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use codec::Encode;
+use codec::{Decode, Encode};
 use core::time::Duration;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use cumulus_primitives_core::{relay_chain::AccountId, PersistedValidationData, ValidationParams};
 use cumulus_test_client::{
 	generate_extrinsic_with_pair, BuildParachainBlockData, InitBlockBuilder, TestClientBuilder,
+	ValidationResult,
 };
 use cumulus_test_relay_sproof_builder::RelayStateSproofBuilder;
-use cumulus_test_runtime::{GluttonCall, SudoCall};
+use cumulus_test_runtime::{Block, GluttonCall, Header, SudoCall};
 use polkadot_primitives::HeadData;
 use sc_client_api::UsageProvider;
 use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy, ImportResult, StateAction};
+use sc_executor_common::wasm_runtime::WasmModule;
 use sp_arithmetic::Perbill;
 use sp_consensus::BlockOrigin;
 
@@ -128,11 +130,7 @@ fn benchmark_block_validation(c: &mut Criterion) {
 		client.init_block_builder(Some(validation_data.clone()), Default::default());
 	let parachain_block = block_builder.build_parachain_block(*parent_header.state_root());
 
-	tracing::info!(
-		"Storage Proof Size: {}",
-		parachain_block.storage_proof().encode().len() as f64 / 1024f64,
-	);
-
+	let proof_size_in_kb = parachain_block.storage_proof().encode().len() as f64 / 1024f64;
 	runtime.block_on(import_block(&client, parachain_block.clone().into_block(), false));
 	let runtime = utils::get_wasm_module();
 
@@ -144,12 +142,17 @@ fn benchmark_block_validation(c: &mut Criterion) {
 	}
 	.encode();
 
+	verify_expected_result(&runtime, &encoded_params, parachain_block.into_block());
+
 	let mut group = c.benchmark_group("Block validation");
 	group.sample_size(20);
 	group.measurement_time(Duration::from_secs(120));
 
 	group.bench_function(
-		format!("(compute = {:?}, storage = {:?}) block validation", compute_level, storage_level),
+		format!(
+			"(compute = {:?}, storage = {:?}, proof_size = {}kb) block validation",
+			compute_level, storage_level, proof_size_in_kb
+		),
 		|b| {
 			b.iter_batched(
 				|| runtime.new_instance().unwrap(),
@@ -160,6 +163,19 @@ fn benchmark_block_validation(c: &mut Criterion) {
 			)
 		},
 	);
+}
+
+fn verify_expected_result(runtime: &Box<dyn WasmModule>, encoded_params: &Vec<u8>, block: Block) {
+	let res = runtime
+		.new_instance()
+		.unwrap()
+		.call_export("validate_block", encoded_params)
+		.expect("Call `validate_block`.");
+	let validation_result =
+		ValidationResult::decode(&mut &res[..]).expect("Decode `ValidationResult`.");
+	let header =
+		Header::decode(&mut &validation_result.head_data.0[..]).expect("Decodes `Header`.");
+	assert_eq!(block.header, header);
 }
 
 criterion_group!(benches, benchmark_block_validation);
