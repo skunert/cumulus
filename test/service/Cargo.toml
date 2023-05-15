@@ -42,7 +42,6 @@ sp-io = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-keyring = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-runtime = { git = "https://github.com/paritytech/substrate", default-features = false, branch = "master" }
 sp-state-machine = { git = "https://github.com/paritytech/substrate", branch = "master" }
-sp-consensus-babe = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-tracing = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-timestamp = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-trie = { git = "https://github.com/paritytech/substrate", branch = "master" }
@@ -56,7 +55,6 @@ polkadot-test-service = { git = "https://github.com/paritytech/polkadot", branch
 polkadot-cli = { git = "https://github.com/paritytech/polkadot", branch = "master" }
 polkadot-node-subsystem = { git = "https://github.com/paritytech/polkadot", branch = "master" }
 polkadot-overseer = { git = "https://github.com/paritytech/polkadot", branch = "master" }
-polkadot-parachain = { git = "https://github.com/paritytech/polkadot", branch = "master" }
 
 # Cumulus
 cumulus-client-cli = { path = "../../client/cli" }
@@ -72,10 +70,9 @@ cumulus-test-relay-validation-worker-provider = { path = "../relay-validation-wo
 cumulus-test-runtime = { path = "../runtime" }
 cumulus-relay-chain-minimal-node = { path = "../../client/relay-chain-minimal-node" }
 cumulus-client-pov-recovery = { path = "../../client/pov-recovery" }
-tempfile = "3.5.0"
-env_logger = "0.10.0"
 
 [dev-dependencies]
+tempfile = "3.5.0"
 futures = "0.3.28"
 portpicker = "0.1.1"
 kitchensink-runtime = { git = "https://github.com/paritytech/substrate", branch = "master" }
