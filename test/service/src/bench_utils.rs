@@ -180,14 +180,7 @@ pub fn get_wasm_module() -> Box<dyn sc_executor_common::wasm_runtime::WasmModule
 			wasm_simd: false,
 		},
 	};
-	let prepared_blob =
-		sc_executor_wasmtime::prepare_runtime_artifact(blob, &config.semantics).unwrap();
-
-	unsafe {
-		let wasm_module = sc_executor_wasmtime::create_runtime_from_artifact_bytes::<
-			sp_io::SubstrateHostFunctions,
-		>(&prepared_blob, config)
-		.expect("Unable to create wasm module.");
-		Box::new(wasm_module)
-	}
+	Box::new(
+		sc_executor_wasmtime::create_runtime(blob, config).expect("Unable to create wasm module."),
+	)
 }
