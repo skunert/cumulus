@@ -711,7 +711,8 @@ pub fn node_config(
 	let root = base_path.path().join(format!("cumulus_test_service_{}", key));
 	let role = if is_collator { Role::Authority } else { Role::Full };
 	let key_seed = key.to_seed();
-	let mut spec = Box::new(chain_spec::get_chain_spec_with_extra_endowed(para_id, endowed_accounts));
+	let mut spec =
+		Box::new(chain_spec::get_chain_spec_with_extra_endowed(para_id, endowed_accounts));
 
 	let mut storage = spec.as_storage_builder().build_storage().expect("could not build storage");
 
@@ -806,7 +807,7 @@ impl TestNode {
 		function: impl Into<runtime::RuntimeCall>,
 		caller: Sr25519Keyring,
 	) -> Result<RpcTransactionOutput, RpcTransactionError> {
-		let extrinsic = construct_extrinsic(&self.client, function, caller.pair(), Some(0));
+		let extrinsic = construct_extrinsic(&*self.client, function, caller.pair(), Some(0));
 
 		self.rpc_handlers.send_transaction(extrinsic.into()).await
 	}
@@ -828,8 +829,13 @@ impl TestNode {
 }
 
 /// Fetch account nonce for key pair
-pub fn fetch_nonce(client: &Client, account: sp_core::sr25519::Public) -> u32 {
-	let best_hash = client.chain_info().best_hash;
+pub fn fetch_nonce<
+	C: sc_client_api::UsageProvider<Block> + HeaderBackend<Block> + sp_api::ProvideRuntimeApi<Block>,
+>(
+	client: &C,
+	account: sp_core::sr25519::Public,
+) -> u32 {
+	let best_hash = client.usage_info().chain.best_hash;
 	client
 		.runtime_api()
 		.account_nonce(best_hash, account.into())
@@ -837,12 +843,18 @@ pub fn fetch_nonce(client: &Client, account: sp_core::sr25519::Public) -> u32 {
 }
 
 /// Construct an extrinsic that can be applied to the test runtime.
-pub fn construct_extrinsic(
-	client: &Client,
+pub fn construct_extrinsic<C>(
+	client: &C,
 	function: impl Into<runtime::RuntimeCall>,
 	caller: sp_core::sr25519::Pair,
 	nonce: Option<u32>,
-) -> runtime::UncheckedExtrinsic {
+) -> runtime::UncheckedExtrinsic
+where
+	C: sc_client_api::UsageProvider<Block>
+		+ HeaderBackend<Block>
+		+ sp_api::ProvideRuntimeApi<Block>,
+	C::Api: AccountNonceApi<Block, AccountId, Nonce>,
+{
 	let function = function.into();
 	let current_block_hash = client.info().best_hash;
 	let current_block = client.info().best_number.saturated_into();
