@@ -19,11 +19,11 @@ bp-runtime = { path = "../runtime", default-features = false }
 
 # Substrate Based Dependencies
 
-frame-support = { git = "https://github.com/paritytech/substrate", default-features = false , branch = "polkadot-v0.9.43" }
-frame-system = { git = "https://github.com/paritytech/substrate", default-features = false , branch = "polkadot-v0.9.43" }
-sp-core = { git = "https://github.com/paritytech/substrate", default-features = false , branch = "polkadot-v0.9.43" }
-sp-runtime = { git = "https://github.com/paritytech/substrate", default-features = false , branch = "polkadot-v0.9.43" }
-sp-std = { git = "https://github.com/paritytech/substrate", default-features = false , branch = "polkadot-v0.9.43" }
+frame-support = { git = "https://github.com/PureStake/substrate", default-features = false , branch = "moonbeam-polkadot-v0.9.43" }
+frame-system = { git = "https://github.com/PureStake/substrate", default-features = false , branch = "moonbeam-polkadot-v0.9.43" }
+sp-core = { git = "https://github.com/PureStake/substrate", default-features = false , branch = "moonbeam-polkadot-v0.9.43" }
+sp-runtime = { git = "https://github.com/PureStake/substrate", default-features = false , branch = "moonbeam-polkadot-v0.9.43" }
+sp-std = { git = "https://github.com/PureStake/substrate", default-features = false , branch = "moonbeam-polkadot-v0.9.43" }
 
 [dev-dependencies]
 hex = "0.4"
