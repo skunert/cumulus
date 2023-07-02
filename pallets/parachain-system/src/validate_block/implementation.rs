@@ -45,13 +45,13 @@ use sp_std::{
 };
 use sp_trie::MemoryDB;
 
-type TrieBackend<B> = sp_state_machine::TrieBackend<
+type TrieBackend<'a, B> = sp_state_machine::TrieBackend<
 	trie_cache::ReadOnceBackend<HashFor<B>>,
 	HashFor<B>,
-	trie_cache::CacheProvider<HashFor<B>>,
+	trie_cache::CacheProvider<'a, HashFor<B>>,
 >;
 
-type Ext<'a, B> = sp_state_machine::Ext<'a, HashFor<B>, TrieBackend<B>>;
+type Ext<'a, B> = sp_state_machine::Ext<'a, HashFor<B>, TrieBackend<'a, B>>;
 
 fn with_externalities<F: FnOnce(&mut dyn Externalities) -> R, R>(f: F) -> R {
 	sp_externalities::with_externalities(f).expect("Environmental externalities not set.")

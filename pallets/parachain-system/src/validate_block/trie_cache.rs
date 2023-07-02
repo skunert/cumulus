@@ -32,7 +32,7 @@ use trie_db::{node::NodeOwned, TrieCache, TrieError};
 /// have already been loaded and decoded from the storage proof.
 pub(crate) struct SimpleTrieCache<'a, H: Hasher> {
 	node_cache: spin::MutexGuard<'a, HashMap<H::Out, NodeOwned<H::Out>>>,
-	value_cache: spin::MutexGuard<'a, HashMap<Box<[u8]>, trie_db::CachedValue<H::Out>>>,
+	value_cache: spin::MutexGuard<'a, HashMap<&'a [u8], trie_db::CachedValue<H::Out>>>,
 }
 
 impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for SimpleTrieCache<'a, H> {
@@ -41,7 +41,7 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for SimpleTrieCache<'a, H> 
 	}
 
 	fn cache_value_for_key(&mut self, key: &[u8], value: trie_db::CachedValue<H::Out>) {
-		self.value_cache.insert(key.into(), value);
+		self.value_cache.insert(key, value);
 	}
 
 	fn get_or_insert_node(
@@ -74,12 +74,12 @@ impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for SimpleTrieCache<'a, H> 
 }
 
 /// Provider for [`SimpleTrieCache`] instances.
-pub(crate) struct CacheProvider<H: Hasher> {
+pub(crate) struct CacheProvider<'a, H: Hasher> {
 	node_cache: spin::Mutex<HashMap<H::Out, NodeOwned<H::Out>>>,
-	value_cache: spin::Mutex<HashMap<Box<[u8]>, trie_db::CachedValue<H::Out>>>,
+	value_cache: spin::Mutex<HashMap<&'a [u8], trie_db::CachedValue<H::Out>>>,
 }
 
-impl<H: Hasher> CacheProvider<H> {
+impl<H: Hasher> CacheProvider<'_, H> {
 	/// Constructs a new instance of CacheProvider with an uninitialized state
 	/// and empty node and value caches.
 	pub fn new() -> Self {
@@ -87,8 +87,8 @@ impl<H: Hasher> CacheProvider<H> {
 	}
 }
 
-impl<H: Hasher> TrieCacheProvider<H> for CacheProvider<H> {
-	type Cache<'a> = SimpleTrieCache<'a, H> where H: 'a;
+impl<'a, H: Hasher> TrieCacheProvider<H> for CacheProvider<'a, H> {
+	type Cache<'b> = SimpleTrieCache<'b, H> where H: 'b, Self: 'b;
 
 	fn as_trie_db_cache(&self, _storage_root: <H as Hasher>::Out) -> Self::Cache<'_> {
 		SimpleTrieCache { value_cache: self.value_cache.lock(), node_cache: self.node_cache.lock() }
@@ -98,7 +98,7 @@ impl<H: Hasher> TrieCacheProvider<H> for CacheProvider<H> {
 		SimpleTrieCache { value_cache: self.value_cache.lock(), node_cache: self.node_cache.lock() }
 	}
 
-	fn merge<'a>(&'a self, _other: Self::Cache<'a>, _new_root: <H as Hasher>::Out) {}
+	fn merge<'b>(&'b self, _other: Self::Cache<'b>, _new_root: <H as Hasher>::Out) {}
 }
 
 /// Wrapper for a [`sp_trie::MemoryDB`] which allows reading of values exactly once.
