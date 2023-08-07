@@ -16,6 +16,8 @@ sp-consensus = { git = "https://github.com/paritytech/substrate", branch = "mast
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sp-externalities = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sp-wasm-interface = { git = "https://github.com/paritytech/substrate", branch = "master" }
 
 # Polkadot
 polkadot-node-primitives = { git = "https://github.com/paritytech/polkadot", branch = "master" }

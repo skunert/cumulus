@@ -15,6 +15,7 @@
 // along with Cumulus.  If not, see <http://www.gnu.org/licenses/>.
 
 use codec::Codec;
+use cumulus_client_clawback::get_extension_factory;
 use cumulus_client_cli::CollatorOptions;
 use cumulus_client_consensus_aura::{AuraConsensus, BuildAuraConsensusParams, SlotProportion};
 use cumulus_client_consensus_common::{
@@ -58,11 +59,17 @@ use std::{marker::PhantomData, sync::Arc, time::Duration};
 use substrate_prometheus_endpoint::Registry;
 
 #[cfg(not(feature = "runtime-benchmarks"))]
-type HostFunctions = sp_io::SubstrateHostFunctions;
+type HostFunctions = (
+	sp_io::SubstrateHostFunctions,
+	cumulus_client_clawback::clawback_host_functions::HostFunctions,
+);
 
 #[cfg(feature = "runtime-benchmarks")]
-type HostFunctions =
-	(sp_io::SubstrateHostFunctions, frame_benchmarking::benchmarking::HostFunctions);
+type HostFunctions = (
+	sp_io::SubstrateHostFunctions,
+	cumulus_client_clawback::clawback_host_functions::HostFunctions,
+	frame_benchmarking::benchmarking::HostFunctions,
+);
 
 type ParachainClient<RuntimeApi> = TFullClient<Block, RuntimeApi, WasmExecutor<HostFunctions>>;
 
@@ -794,13 +801,15 @@ pub async fn start_rococo_parachain_node(
 		 force_authoring| {
 			let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
 
-			let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
-				task_manager.spawn_handle(),
-				client.clone(),
-				transaction_pool,
-				prometheus_registry,
-				telemetry.clone(),
-			);
+			let proposer_factory =
+				sc_basic_authorship::ProposerFactory::with_proof_recording_extension(
+					task_manager.spawn_handle(),
+					client.clone(),
+					transaction_pool,
+					prometheus_registry,
+					telemetry.clone(),
+					Some(get_extension_factory()),
+				);
 
 			Ok(AuraConsensus::build::<sp_consensus_aura::sr25519::AuthorityPair, _, _, _, _, _, _>(
 				BuildAuraConsensusParams {
@@ -922,13 +931,15 @@ where
 		 _,
 		 _,
 		 _| {
-			let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
-				task_manager.spawn_handle(),
-				client,
-				transaction_pool,
-				prometheus_registry,
-				telemetry,
-			);
+			let proposer_factory =
+				sc_basic_authorship::ProposerFactory::with_proof_recording_extension(
+					task_manager.spawn_handle(),
+					client.clone(),
+					transaction_pool,
+					prometheus_registry,
+					telemetry.clone(),
+					Some(get_extension_factory()),
+				);
 
 			Ok(cumulus_client_consensus_relay_chain::build_relay_chain_consensus(
 				cumulus_client_consensus_relay_chain::BuildRelayChainConsensusParams {
@@ -1187,13 +1198,15 @@ where
 				let slot_duration =
 					cumulus_client_consensus_aura::slot_duration(&*client2).unwrap();
 
-				let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
-					spawn_handle,
-					client2.clone(),
-					transaction_pool2,
-					prometheus_registry2.as_ref(),
-					telemetry2.clone(),
-				);
+				let proposer_factory =
+					sc_basic_authorship::ProposerFactory::with_proof_recording_extension(
+						spawn_handle,
+						client2.clone(),
+						transaction_pool2,
+						prometheus_registry2.as_ref(),
+						telemetry2.clone(),
+						Some(get_extension_factory()),
+					);
 
 				AuraConsensus::build::<<AuraId as AppCrypto>::Pair, _, _, _, _, _, _>(
 					BuildAuraConsensusParams {
@@ -1245,13 +1258,15 @@ where
 				)
 			})));
 
-			let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
-				task_manager.spawn_handle(),
-				client.clone(),
-				transaction_pool,
-				prometheus_registry,
-				telemetry,
-			);
+			let proposer_factory =
+				sc_basic_authorship::ProposerFactory::with_proof_recording_extension(
+					task_manager.spawn_handle(),
+					client.clone(),
+					transaction_pool,
+					prometheus_registry,
+					telemetry.clone(),
+					Some(get_extension_factory()),
+				);
 
 			let relay_chain_consensus =
 				cumulus_client_consensus_relay_chain::build_relay_chain_consensus(
@@ -1567,13 +1582,15 @@ pub async fn start_contracts_rococo_node(
 		 force_authoring| {
 			let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
 
-			let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
-				task_manager.spawn_handle(),
-				client.clone(),
-				transaction_pool,
-				prometheus_registry,
-				telemetry.clone(),
-			);
+			let proposer_factory =
+				sc_basic_authorship::ProposerFactory::with_proof_recording_extension(
+					task_manager.spawn_handle(),
+					client.clone(),
+					transaction_pool,
+					prometheus_registry,
+					telemetry.clone(),
+					Some(get_extension_factory()),
+				);
 
 			Ok(AuraConsensus::build::<sp_consensus_aura::sr25519::AuthorityPair, _, _, _, _, _, _>(
 				BuildAuraConsensusParams {

@@ -3,6 +3,7 @@
 // std
 use std::{sync::Arc, time::Duration};
 
+use cumulus_client_clawback::get_extension_factory;
 use cumulus_client_cli::CollatorOptions;
 // Local Runtime Types
 use parachain_template_runtime::{opaque::Block, RuntimeApi};
@@ -387,12 +388,13 @@ fn build_consensus(
 ) -> Result<Box<dyn ParachainConsensus<Block>>, sc_service::Error> {
 	let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
 
-	let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
+	let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording_extension(
 		task_manager.spawn_handle(),
 		client.clone(),
 		transaction_pool,
 		prometheus_registry,
 		telemetry.clone(),
+		Some(get_extension_factory()),
 	);
 
 	let params = BuildAuraConsensusParams {

@@ -888,10 +888,12 @@ impl_runtime_apis! {
 
 	impl sp_block_builder::BlockBuilder<Block> for Runtime {
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
+			cumulus_client_clawback::clawback_host_functions::yolo();
 			Executive::apply_extrinsic(extrinsic)
 		}
 
 		fn finalize_block() -> <Block as BlockT>::Header {
+			cumulus_client_clawback::clawback_host_functions::yolo();
 			Executive::finalize_block()
 		}
 
