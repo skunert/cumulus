@@ -25,9 +25,11 @@ extern crate sp_trie;
 
 use sp_externalities::Extension;
 use sp_runtime_interface::runtime_interface;
-use sp_trie::recorder::ProofSizeEstimationProvider;
+use sp_trie::ProofSizeEstimationProvider;
 #[cfg(feature = "std")]
 use std::sync::Arc;
+
+use sp_std::boxed::Box;
 
 #[cfg(feature = "std")]
 use sp_runtime_interface::ExternalitiesExt;
@@ -35,14 +37,8 @@ use sp_runtime_interface::ExternalitiesExt;
 #[runtime_interface]
 pub trait ClawbackHostFunctions {
 	fn current_storage_proof_size(&mut self) -> u32 {
-		tracing::info!("Yolo host function is called.");
-		let type_id = core::any::TypeId::of::<PovUsageExt>();
-		tracing::info!("TypeId of PovUsageExt: {:?}: ", type_id);
 		match self.extension::<PovUsageExt>() {
-			Some(ext) => {
-				tracing::info!("Extension registered.");
-				ext.current_storage_proof_size()
-			},
+			Some(ext) => ext.current_storage_proof_size(),
 			None => 0,
 		}
 	}
@@ -69,7 +65,6 @@ impl PovUsageReporter {
 
 impl ReportPovUsage for PovUsageReporter {
 	fn current_storage_proof_size(&self) -> u32 {
-		tracing::info!(target: "skunert", "Calling into the extension.");
 		self.recorder.estimate_proof_size() as u32
 	}
 }
