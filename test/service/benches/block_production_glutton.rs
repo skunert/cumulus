@@ -43,6 +43,7 @@ fn benchmark_block_production_compute(c: &mut Criterion) {
 		cumulus_test_service::TestNodeBuilder::new(para_id, tokio_handle.clone(), Alice).build(),
 	);
 	let client = alice.client;
+	let backend = alice.backend;
 
 	let mut group = c.benchmark_group("Block production");
 
@@ -68,13 +69,16 @@ fn benchmark_block_production_compute(c: &mut Criterion) {
 
 		group.bench_function(
 			format!(
-				"(compute = {:?} %, storage = {:?} %) block import",
+				"(compute = {:?} %, storage = {:?} %, proof = true) block import",
 				compute_ratio.saturating_mul_int(100),
 				storage_ratio.saturating_mul_int(100)
 			),
 			|b| {
 				b.iter_batched(
-					|| (set_validation_data_extrinsic.clone(), set_time_extrinsic.clone()),
+					|| {
+						backend.reset_trie_cache();
+						(set_validation_data_extrinsic.clone(), set_time_extrinsic.clone())
+					},
 					|(validation_data, time)| {
 						let mut block_builder = client
 							.new_block_at(best_hash, Default::default(), RecordProof::Yes)
@@ -90,13 +94,16 @@ fn benchmark_block_production_compute(c: &mut Criterion) {
 
 		group.bench_function(
 			format!(
-				"(compute = {:?} %, storage = {:?} %) block import",
+				"(compute = {:?} %, storage = {:?} %, proof = false) block import",
 				compute_ratio.saturating_mul_int(100),
 				storage_ratio.saturating_mul_int(100)
 			),
 			|b| {
 				b.iter_batched(
-					|| (set_validation_data_extrinsic.clone(), set_time_extrinsic.clone()),
+					|| {
+						backend.reset_trie_cache();
+						(set_validation_data_extrinsic.clone(), set_time_extrinsic.clone())
+					},
 					|(validation_data, time)| {
 						let mut block_builder = client
 							.new_block_at(best_hash, Default::default(), RecordProof::No)

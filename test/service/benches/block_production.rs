@@ -45,6 +45,7 @@ fn benchmark_block_production(c: &mut Criterion) {
 			.build(),
 	);
 	let client = alice.client;
+	let backend = alice.backend;
 
 	let parent_hash = client.usage_info().chain.best_hash;
 	let parent_header = client.header(parent_hash).expect("Just fetched this hash.").unwrap();
@@ -72,7 +73,10 @@ fn benchmark_block_production(c: &mut Criterion) {
 		format!("(proof = true, transfers = {}) block production", max_transfer_count),
 		|b| {
 			b.iter_batched(
-				|| extrinsics.clone(),
+				|| {
+					backend.reset_trie_cache();
+					extrinsics.clone()
+				},
 				|extrinsics| {
 					let mut block_builder = client
 						.new_block_at(best_hash, Default::default(), RecordProof::Yes)

@@ -301,6 +301,7 @@ pub async fn start_node_impl<RB>(
 	Arc<NetworkService<Block, H256>>,
 	RpcHandlers,
 	TransactionPool,
+	Arc<Backend>,
 )>
 where
 	RB: Fn(Arc<Client>) -> Result<jsonrpsee::RpcModule<()>, sc_service::Error> + Send + 'static,
@@ -462,7 +463,7 @@ where
 
 	start_network.start_network();
 
-	Ok((task_manager, client, network, rpc_handlers, transaction_pool))
+	Ok((task_manager, client, network, rpc_handlers, transaction_pool, backend))
 }
 
 /// A Cumulus test node instance used for testing.
@@ -471,6 +472,8 @@ pub struct TestNode {
 	pub task_manager: TaskManager,
 	/// Client's instance.
 	pub client: Arc<Client>,
+	/// Node's backend
+	pub backend: Arc<Backend>,
 	/// Node's network.
 	pub network: Arc<NetworkService<Block, H256>>,
 	/// The `MultiaddrWithPeerId` to this node. This is useful if you want to pass it as "boot node"
@@ -669,24 +672,25 @@ impl TestNodeBuilder {
 			format!("{} (relay chain)", relay_chain_config.network.node_name);
 
 		let multiaddr = parachain_config.network.listen_addresses[0].clone();
-		let (task_manager, client, network, rpc_handlers, transaction_pool) = start_node_impl(
-			parachain_config,
-			self.collator_key,
-			relay_chain_config,
-			self.para_id,
-			self.wrap_announce_block,
-			false,
-			|_| Ok(jsonrpsee::RpcModule::new(())),
-			self.consensus,
-			collator_options,
-		)
-		.await
-		.expect("could not create Cumulus test service");
+		let (task_manager, client, network, rpc_handlers, transaction_pool, backend) =
+			start_node_impl(
+				parachain_config,
+				self.collator_key,
+				relay_chain_config,
+				self.para_id,
+				self.wrap_announce_block,
+				false,
+				|_| Ok(jsonrpsee::RpcModule::new(())),
+				self.consensus,
+				collator_options,
+			)
+			.await
+			.expect("could not create Cumulus test service");
 
 		let peer_id = network.local_peer_id();
 		let addr = MultiaddrWithPeerId { multiaddr, peer_id };
 
-		TestNode { task_manager, client, network, addr, rpc_handlers, transaction_pool }
+		TestNode { task_manager, client, backend, network, addr, rpc_handlers, transaction_pool }
 	}
 }
 
