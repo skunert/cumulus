@@ -29,6 +29,9 @@ use sp_trie::ProofSizeEstimationProvider;
 #[cfg(feature = "std")]
 use std::sync::Arc;
 
+#[cfg(feature = "std")]
+use sp_api::ExtensionProducer;
+
 use sp_std::boxed::Box;
 
 #[cfg(feature = "std")]
@@ -70,13 +73,7 @@ impl ReportPovUsage for PovUsageReporter {
 }
 
 #[cfg(feature = "std")]
-pub fn get_extension_factory() -> std::sync::Arc<
-	dyn Fn(
-			Box<dyn ProofSizeEstimationProvider + Send + Sync>,
-		) -> (core::any::TypeId, Box<dyn Extension + Send + Sync>)
-		+ Send
-		+ Sync,
-> {
+pub fn get_extension_factory() -> ExtensionProducer {
 	std::sync::Arc::new(|recorder| {
 		(
 			core::any::TypeId::of::<PovUsageExt>(),
