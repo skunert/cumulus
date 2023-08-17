@@ -67,6 +67,7 @@ cumulus-client-cli = { path = "../../client/cli" }
 parachains-common = { path = "../../parachains/common" }
 cumulus-client-consensus-common = { path = "../../client/consensus/common" }
 cumulus-client-consensus-relay-chain = { path = "../../client/consensus/relay-chain" }
+cumulus-client-clawback = { path = "../../client/clawback" }
 cumulus-client-service = { path = "../../client/service" }
 cumulus-primitives-core = { path = "../../primitives/core" }
 cumulus-primitives-parachain-inherent = { path = "../../primitives/parachain-inherent" }

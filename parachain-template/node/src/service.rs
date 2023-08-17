@@ -101,10 +101,11 @@ pub fn new_partial(
 	let executor = ParachainExecutor::new_with_wasm_executor(wasm);
 
 	let (client, backend, keystore_container, task_manager) =
-		sc_service::new_full_parts::<Block, RuntimeApi, _>(
+		sc_service::new_full_parts_extension::<Block, RuntimeApi, _>(
 			config,
 			telemetry.as_ref().map(|(_, telemetry)| telemetry.handle()),
 			executor,
+			Some(get_extension_factory()),
 		)?;
 	let client = Arc::new(client);
 
