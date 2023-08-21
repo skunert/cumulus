@@ -22,4 +22,4 @@ chain = "asset-hub-kusama-local"
   validator = true
   image = "parity/polkadot-parachain:latest"
   command = "polkadot-parachain"
-  args = ["--force-authoring -lruntime=debug,aura=debug,basic-authorship=debug"]
+  args = ["--force-authoring -laura=debug,basic-authorship=debug"]

@@ -53,7 +53,7 @@ pub trait ReportPovUsage: Send + Sync {
 
 #[cfg(feature = "std")]
 sp_externalities::decl_extension! {
-	pub struct PovUsageExt(Box<dyn ReportPovUsage>);
+	pub struct PovUsageExt(PovUsageReporter);
 }
 
 pub struct PovUsageReporter {
@@ -64,9 +64,7 @@ impl PovUsageReporter {
 	fn new(recorder: Box<dyn ProofSizeEstimationProvider + Sync + Send>) -> Self {
 		PovUsageReporter { recorder }
 	}
-}
 
-impl ReportPovUsage for PovUsageReporter {
 	fn current_storage_proof_size(&self) -> u32 {
 		self.recorder.estimate_proof_size() as u32
 	}
@@ -77,7 +75,7 @@ pub fn get_extension_factory() -> ExtensionProducer {
 	std::sync::Arc::new(|recorder| {
 		(
 			core::any::TypeId::of::<PovUsageExt>(),
-			Box::new(PovUsageExt(Box::new(PovUsageReporter::new(recorder))))
+			Box::new(PovUsageExt(PovUsageReporter::new(recorder)))
 				as Box<dyn Extension + Send + Sync + 'static>,
 		)
 	}) as Arc<_>
