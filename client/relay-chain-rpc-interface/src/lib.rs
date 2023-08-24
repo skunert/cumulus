@@ -38,9 +38,15 @@ use std::pin::Pin;
 use cumulus_primitives_core::relay_chain::BlockId;
 pub use url::Url;
 
+mod light_client_worker;
 mod reconnecting_ws_client;
 mod rpc_client;
-pub use rpc_client::{create_client_and_start_worker, RelayChainRpcClient};
+mod tokio_platform;
+
+pub use rpc_client::{
+	create_client_and_start_light_client_worker, create_client_and_start_worker,
+	RelayChainRpcClient,
+};
 
 const TIMEOUT_IN_SECONDS: u64 = 6;
 
@@ -184,7 +190,8 @@ impl RelayChainInterface for RelayChainRpcInterface {
 
 	/// Wait for a given relay chain block
 	///
-	/// The hash of the block to wait for is passed. We wait for the block to arrive or return after a timeout.
+	/// The hash of the block to wait for is passed. We wait for the block to arrive or return after
+	/// a timeout.
 	///
 	/// Implementation:
 	/// 1. Register a listener to all new blocks.

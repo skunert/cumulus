@@ -20,15 +20,14 @@
 //!
 //! ### Governance
 //!
-//! As a common good parachain, Collectives defers its governance (namely, its `Root` origin), to its
-//! Relay Chain parent, Polkadot.
+//! As a common good parachain, Collectives defers its governance (namely, its `Root` origin), to
+//! its Relay Chain parent, Polkadot.
 //!
 //! ### Collator Selection
 //!
 //! Collectives uses `pallet-collator-selection`, a simple first-come-first-served registration
 //! system where collators can reserve a small bond to join the block producer set. There is no
 //! slashing. Collective members are generally expected to run collators.
-//!
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![recursion_limit = "256"]
@@ -65,14 +64,14 @@ use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use constants::{currency::*, fee::WeightToFee};
+use constants::{consensus::*, currency::*, fee::WeightToFee};
 use frame_support::{
 	construct_runtime,
 	dispatch::DispatchClass,
 	parameter_types,
 	traits::{ConstBool, ConstU16, ConstU32, ConstU64, ConstU8, EitherOfDiverse, InstanceFilter},
 	weights::{ConstantMultiplier, Weight},
-	PalletId, RuntimeDebug,
+	PalletId,
 };
 use frame_system::{
 	limits::{BlockLength, BlockWeights},
@@ -84,6 +83,7 @@ use parachains_common::{
 	AVERAGE_ON_INITIALIZE_RATIO, DAYS, HOURS, MAXIMUM_BLOCK_WEIGHT, MINUTES, NORMAL_DISPATCH_RATIO,
 	SLOT_DURATION,
 };
+use sp_runtime::RuntimeDebug;
 use xcm_config::{GovernanceLocation, XcmConfig, XcmOriginToTransactDispatchOrigin};
 
 #[cfg(any(feature = "std", test))]
@@ -108,7 +108,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("collectives"),
 	impl_name: create_runtime_str!("collectives"),
 	authoring_version: 1,
-	spec_version: 9430,
+	spec_version: 10000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 5,
@@ -369,6 +369,12 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type XcmpMessageHandler = XcmpQueue;
 	type ReservedXcmpWeight = ReservedXcmpWeight;
 	type CheckAssociatedRelayNumber = RelayNumberStrictlyIncreases;
+	type ConsensusHook = cumulus_pallet_aura_ext::FixedVelocityConsensusHook<
+		Runtime,
+		RELAY_CHAIN_SLOT_DURATION_MILLIS,
+		BLOCK_PROCESSING_VELOCITY,
+		UNINCLUDED_SEGMENT_CAPACITY,
+	>;
 }
 
 impl parachain_info::Config for Runtime {}
@@ -415,6 +421,8 @@ impl pallet_aura::Config for Runtime {
 	type DisabledValidators = ();
 	type MaxAuthorities = ConstU32<100_000>;
 	type AllowMultipleBlocksPerSlot = ConstBool<false>;
+	#[cfg(feature = "experimental")]
+	type SlotDuration = pallet_aura::MinimumPeriodTimesTwo<Self>;
 }
 
 parameter_types! {
@@ -624,10 +632,8 @@ pub type SignedExtra = (
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
 	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
-/// Extrinsic type that has already been checked.
-pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, SignedExtra>;
-// All migrations executed on runtime upgrade as a nested tuple of types implementing
-// `OnRuntimeUpgrade`. Included migrations must be idempotent.
+/// All migrations executed on runtime upgrade as a nested tuple of types implementing
+/// `OnRuntimeUpgrade`. Included migrations must be idempotent.
 type Migrations = (
 	// v9420
 	import_kusama_fellowship::Migration<Runtime, FellowshipCollectiveInstance>,
@@ -857,7 +863,8 @@ impl_runtime_apis! {
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
-			use frame_benchmarking::{Benchmarking, BenchmarkBatch, BenchmarkError, TrackedStorageKey};
+			use frame_benchmarking::{Benchmarking, BenchmarkBatch, BenchmarkError};
+			use sp_storage::TrackedStorageKey;
 
 			use frame_system_benchmarking::Pallet as SystemBench;
 			impl frame_system_benchmarking::Config for Runtime {
@@ -897,31 +904,7 @@ impl_runtime_apis! {
 	}
 }
 
-struct CheckInherents;
-
-impl cumulus_pallet_parachain_system::CheckInherents<Block> for CheckInherents {
-	fn check_inherents(
-		block: &Block,
-		relay_state_proof: &cumulus_pallet_parachain_system::RelayChainStateProof,
-	) -> sp_inherents::CheckInherentsResult {
-		let relay_chain_slot = relay_state_proof
-			.read_slot()
-			.expect("Could not read the relay chain slot from the proof");
-
-		let inherent_data =
-			cumulus_primitives_timestamp::InherentDataProvider::from_relay_chain_slot_and_duration(
-				relay_chain_slot,
-				sp_std::time::Duration::from_secs(6),
-			)
-			.create_inherent_data()
-			.expect("Could not create the timestamp inherent data");
-
-		inherent_data.check_extrinsics(block)
-	}
-}
-
 cumulus_pallet_parachain_system::register_validate_block! {
 	Runtime = Runtime,
 	BlockExecutor = cumulus_pallet_aura_ext::BlockExecutor::<Runtime, Executive>,
-	CheckInherents = CheckInherents,
 }

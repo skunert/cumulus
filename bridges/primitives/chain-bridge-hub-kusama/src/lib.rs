@@ -27,9 +27,9 @@ use bp_runtime::{
 use frame_support::{
 	dispatch::DispatchClass,
 	sp_runtime::{MultiAddress, MultiSigner},
-	RuntimeDebug,
 };
-use sp_std::prelude::*;
+use sp_runtime::RuntimeDebug;
+use sp_std::prelude::Vec;
 
 /// BridgeHubKusama parachain.
 #[derive(RuntimeDebug)]

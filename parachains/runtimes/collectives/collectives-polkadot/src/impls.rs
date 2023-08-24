@@ -16,10 +16,10 @@
 use crate::OriginCaller;
 use frame_support::{
 	dispatch::{DispatchError, DispatchResultWithPostInfo},
-	log,
 	traits::{Currency, Get, Imbalance, OnUnbalanced, OriginTrait, PrivilegeCmp},
 	weights::Weight,
 };
+use log;
 use pallet_alliance::{ProposalIndex, ProposalProvider};
 use parachains_common::impls::NegativeImbalance;
 use sp_std::{cmp::Ordering, marker::PhantomData, prelude::*};
@@ -35,7 +35,8 @@ type HashOf<T> = <T as frame_system::Config>::Hash;
 pub type BalanceOf<T> =
 	<pallet_balances::Pallet<T> as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
-/// Implements `OnUnbalanced::on_unbalanced` to teleport slashed assets to relay chain treasury account.
+/// Implements `OnUnbalanced::on_unbalanced` to teleport slashed assets to relay chain treasury
+/// account.
 pub struct ToParentTreasury<TreasuryAccount, PalletAccount, T>(
 	PhantomData<(TreasuryAccount, PalletAccount, T)>,
 );
@@ -187,8 +188,9 @@ pub mod benchmarks {
 		}
 	}
 
-	/// Type that wraps a type implementing the [`Pay`] trait to decorate its [`Pay::ensure_successful`]
-	/// function with a provided implementation of the [`EnsureSuccessful`] trait.
+	/// Type that wraps a type implementing the [`Pay`] trait to decorate its
+	/// [`Pay::ensure_successful`] function with a provided implementation of the
+	/// [`EnsureSuccessful`] trait.
 	pub struct PayWithEnsure<O, E>(PhantomData<(O, E)>);
 	impl<O, E> Pay for PayWithEnsure<O, E>
 	where

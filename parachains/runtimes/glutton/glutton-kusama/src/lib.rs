@@ -87,7 +87,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("glutton"),
 	impl_name: create_runtime_str!("glutton"),
 	authoring_version: 1,
-	spec_version: 9430,
+	spec_version: 10000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -179,6 +179,7 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type XcmpMessageHandler = ();
 	type ReservedXcmpWeight = ();
 	type CheckAssociatedRelayNumber = RelayNumberStrictlyIncreases;
+	type ConsensusHook = cumulus_pallet_parachain_system::consensus_hook::ExpectParentIncluded;
 }
 
 impl parachain_info::Config for Runtime {}
@@ -244,8 +245,6 @@ pub type SignedExtra = (
 /// Unchecked extrinsic type as expected by this runtime.
 pub type UncheckedExtrinsic =
 	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
-/// Extrinsic type that has already been checked.
-pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, RuntimeCall, SignedExtra>;
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
 	Runtime,
@@ -375,7 +374,9 @@ impl_runtime_apis! {
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
-			use frame_benchmarking::{Benchmarking, BenchmarkBatch,  BenchmarkError, TrackedStorageKey};
+			use frame_benchmarking::{Benchmarking, BenchmarkBatch,  BenchmarkError};
+			use sp_storage::TrackedStorageKey;
+
 			use frame_system_benchmarking::Pallet as SystemBench;
 			impl frame_system_benchmarking::Config for Runtime {
 				fn setup_set_code_requirements(code: &sp_std::vec::Vec<u8>) -> Result<(), BenchmarkError> {
@@ -399,19 +400,7 @@ impl_runtime_apis! {
 	}
 }
 
-struct CheckInherents;
-
-impl cumulus_pallet_parachain_system::CheckInherents<Block> for CheckInherents {
-	fn check_inherents(
-		_: &Block,
-		_: &cumulus_pallet_parachain_system::RelayChainStateProof,
-	) -> sp_inherents::CheckInherentsResult {
-		sp_inherents::CheckInherentsResult::new()
-	}
-}
-
 cumulus_pallet_parachain_system::register_validate_block! {
 	Runtime = Runtime,
 	BlockExecutor = Executive,
-	CheckInherents = CheckInherents,
 }
