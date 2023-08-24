@@ -1175,11 +1175,11 @@ where
 
 			let proposer_factory =
 				sc_basic_authorship::ProposerFactory::with_proof_recording_extension(
-					spawn_handle,
-					client2.clone(),
-					transaction_pool2,
-					prometheus_registry2.as_ref(),
-					telemetry2.clone(),
+					task_manager.spawn_handle(),
+					client.clone(),
+					transaction_pool,
+					prometheus_registry,
+					telemetry.clone(),
 					Some(get_extension_factory()),
 				);
 			let proposer = Proposer::new(proposer_factory);
