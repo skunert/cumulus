@@ -30,10 +30,10 @@ use polkadot_primitives::CollatorPair;
 
 use sc_authority_discovery::Service as AuthorityDiscoveryService;
 use sc_network::{config::FullNetworkConfiguration, Event, NetworkEventStream, NetworkService};
-use sc_service::{Configuration, TaskManager};
+use sc_service::{config::PrometheusConfig, Configuration, TaskManager};
 use sp_runtime::{app_crypto::Pair, traits::Block as BlockT};
 
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use std::sync::Arc;
 
 mod collator_overseer;
@@ -130,6 +130,14 @@ async fn new_minimal_relay_chain(
 		let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
 		TaskManager::new(config.tokio_handle.clone(), registry)?
 	};
+
+	if let Some(PrometheusConfig { port, registry }) = config.prometheus_config.clone() {
+		task_manager.spawn_handle().spawn(
+			"prometheus-endpoint",
+			None,
+			substrate_prometheus_endpoint::init_prometheus(port, registry).map(drop),
+		);
+	}
 
 	let prometheus_registry = config.prometheus_registry().cloned();
 

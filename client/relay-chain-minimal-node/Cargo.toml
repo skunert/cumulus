@@ -31,6 +31,7 @@ sp-blockchain = { git = "https://github.com/paritytech/substrate", branch = "pol
 sp-consensus-babe = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.43" }
 sp-consensus = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.43" }
 sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.43" }
+substrate-prometheus-endpoint = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.43" }
 
 # cumulus deps
 cumulus-relay-chain-interface = { path = "../relay-chain-interface" }
