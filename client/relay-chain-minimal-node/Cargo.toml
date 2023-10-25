@@ -24,6 +24,7 @@ sc-client-api = { git = "https://github.com/moonbeam-foundation/substrate", bran
 sc-network = { git = "https://github.com/moonbeam-foundation/substrate", branch = "moonbeam-polkadot-v0.9.43" }
 sc-network-common = { git = "https://github.com/moonbeam-foundation/substrate", branch = "moonbeam-polkadot-v0.9.43" }
 sc-service = { git = "https://github.com/moonbeam-foundation/substrate", branch = "moonbeam-polkadot-v0.9.43" }
+substrate-prometheus-endpoint = { git = "https://github.com/moonbeam-foundation/substrate", branch = "moonbeam-polkadot-v0.9.43" }
 sc-tracing = { git = "https://github.com/moonbeam-foundation/substrate", branch = "moonbeam-polkadot-v0.9.43" }
 sc-utils = { git = "https://github.com/moonbeam-foundation/substrate", branch = "moonbeam-polkadot-v0.9.43" }
 sp-api = { git = "https://github.com/moonbeam-foundation/substrate", branch = "moonbeam-polkadot-v0.9.43" }
